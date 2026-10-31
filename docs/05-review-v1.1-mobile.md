@@ -51,3 +51,15 @@ Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fix
   - eng-lead: enlarge it in touch mode; design-writer: check the longest tip (53 chars) still fits; QA: re-check at 667x375.
 - Deferred: on a touchscreen laptop with a fine pointer, touch mode starts at the first touch, so menus already drawn keep desktop sizes until a reload. It's rare, cosmetic and fixed by a reload.
 - **Sign-off: SHIP v1.1.1.** Dana.
+
+## v1.1.2: pager readability on touch (action item closed)
+- eng-lead (ui.js, touch mode only, cache-time):
+  - Pager tip 11 -> 18 canvas px (12 CSS px), 560 px wrap budget, up to 3 lines, box x 182-778; header 9 -> 12.
+  - Case-1 hint 11 -> 18. IN RANGE/NEAR labels 11 -> 16, kept on screen.
+  - Bubble no-go uses the real pager/hint width; camera no-go box 74 -> 100; a top-edge arrow slides past the pager.
+- design-writer: measured all 42 tips with measureText; affair tip is now 'Banker Avner + "trainer" at {area}.'; widest is 527/560 px, so every tip fits on one line.
+- QA: SHIP at 740x360 and 667x375; clear of plates and II; a forced 2-line tip clears; bubbles stay below the hint; 6x PERFECT, polaroids without HUD; desktop unchanged; 135/135, 0 console errors.
+- Decision: the desktop arrow hiding under the pager for 5 s becomes an action item. Those 5 s are right after a spawn, exactly when the player needs the direction.
+  - eng-lead: apply the slide-past-pager rule on desktop too. Same change: add the SNAP button to the touch bubble no-go zones (cosmetic on its own, but it's the same mechanism, so it costs nothing extra).
+  - Due v1.1.3; QA re-checks both modes.
+- **Sign-off: SHIP v1.1.2.** Dana.

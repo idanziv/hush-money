@@ -12,6 +12,8 @@
   var CACHE_CAP = 200;
   var TOP_STRIP = 30;                         // bubbles never enter the top 30 px
   var CAM_BOX_W = 74, CAM_BOX_H = 76;         // camera-icon box, bottom-right
+  var CAM_BOX_W_TOUCH = 100;                  // touch: wider 16 px IN RANGE / NEAR label
+  var CAM_LABEL_TOUCH = 'bold 16px Verdana, sans-serif';
 
   var mctx = null;                 // measuring context
   var bubbleCache = new Map();     // key -> canvas (cap 200)
@@ -149,8 +151,8 @@
     mctx = newCanvas(4, 4).getContext('2d');
     camIcons = { grey: makeCamIcon('#8A8A8A'), amber: makeCamIcon(AMBER), cyan: makeCamIcon(CYAN) };
     fixed = {
-      inRange: textSprite('IN RANGE', FONT, CYAN, '#000000'),
-      near: textSprite('NEAR', FONT, AMBER, '#000000'),
+      inRange: textSprite('IN RANGE', touchMenus() ? CAM_LABEL_TOUCH : FONT, CYAN, '#000000'),
+      near: textSprite('NEAR', touchMenus() ? CAM_LABEL_TOUCH : FONT, AMBER, '#000000'),
       muted: textSprite('MUTED (M)', FONT, '#BBBBBB', '#000000'),
       start: textSprite(TXT().start || 'Press Enter', 'bold 22px Verdana, sans-serif', '#FFFFFF', '#000000'),
       hint: null
@@ -221,7 +223,7 @@
     if (x < 2) x = 2; else if (x + w > W - 2) x = W - 2 - w;
     if (y + h > H - 2) y = H - 2 - h;
     if (y < TOP_STRIP + 2) y = TOP_STRIP + 2;
-    if (x + w > W - CAM_BOX_W && y + h > H - CAM_BOX_H) y = H - CAM_BOX_H - h - 2;   // above the camera icon
+    if (x + w > W - (touchMenus() ? CAM_BOX_W_TOUCH : CAM_BOX_W) && y + h > H - CAM_BOX_H) y = H - CAM_BOX_H - h - 2;   // above the camera icon
     place.x = x | 0; place.y = y | 0;
   }
 
@@ -263,7 +265,12 @@
     var pt = gs.time - st.pagerT0, hudBottom = 0;
     if (pt >= 0 && pt < 5 && st.pagerText) hudBottom = 4 + getPager().height;
     if (gs.caseNo === 1 && gs.scandal && gs.scandal.status === 'live') hudBottom = hintY(gs) + hintSprite().height;
-    var hudL = Math.round(cam.w / 2) - 230, hudW = 460;
+    var hudW = 460;
+    if (touchMenus() && hudBottom > 0) {
+      if (pt >= 0 && pt < 5 && st.pagerText) hudW = Math.max(hudW, getPager().width + 4);
+      if (gs.caseNo === 1 && gs.scandal && gs.scandal.status === 'live') hudW = Math.max(hudW, hintSprite().width + 4);
+    }
+    var hudL = Math.round(cam.w / 2 - hudW / 2);
     // 1. scandal bubble(s) first (normally exactly one); never hidden: shifted below the HUD box if needed
     for (i = 0; i < people.length; i++) {
       q = people[i];
@@ -393,17 +400,20 @@
     var key = 'pager|' + text;            // built once per tip (on spawn)
     var c = spriteCache.get(key);
     if (c) return c;
-    var lines = wrap(text, FONT, 400).slice(0, 3);
-    var w = 440, h = 26 + lines.length * 14;
+    // v1.1.2 touch: 18 px tip (12 CSS px at 740x360), wrap budget PAGER_TOUCH_TEXT_W px, max 3 lines
+    var big = touchMenus(), tf = big ? 'bold ' + MENU_TOUCH_PX + 'px Verdana, sans-serif' : FONT;
+    var lh = big ? 22 : 14, top = big ? 28 : 23;
+    var lines = wrap(text, tf, big ? PAGER_TOUCH_TEXT_W : 400).slice(0, 3);
+    var w = big ? PAGER_TOUCH_TEXT_W + 28 : 440, h = top + 3 + lines.length * lh;
     c = newCanvas(w + 8, h + 8);
     var x = c.getContext('2d');
     x.fillStyle = PLATE; roundRect(x, 0, 0, w + 8, h + 8, 8); x.fill();
     x.fillStyle = '#111111'; roundRect(x, 4, 4, w, h, 6); x.fill();
     x.fillStyle = '#9DB86A'; roundRect(x, 7, 7, w - 6, h - 6, 4); x.fill();
-    x.fillStyle = '#2B3A1E'; x.font = 'bold 9px Verdana, sans-serif'; x.textBaseline = 'top';
+    x.fillStyle = '#2B3A1E'; x.font = big ? 'bold 12px Verdana, sans-serif' : 'bold 9px Verdana, sans-serif'; x.textBaseline = 'top';
     x.fillText('PAGER  ))) NEW TIP', 14, 10);
-    x.font = FONT;
-    for (var i = 0; i < lines.length; i++) x.fillText(lines[i], 14, 23 + i * 14);
+    x.font = tf;
+    for (var i = 0; i < lines.length; i++) x.fillText(lines[i], 14, top + i * lh);
     return capSet(spriteCache, key, c);
   }
 
@@ -415,7 +425,13 @@
   function hintSprite() {
     if (fixed.hint) return fixed.hint;
     var text = TXT().hint1 || 'Follow the green arrow. Get IN RANGE. Shoot on the flash.';
-    var t = textSprite(text, FONT, '#FFFFFF', '#000000');
+    var hf = FONT;
+    if (touchMenus()) {                         // v1.1.2: 18 px on touch, shrunk (>= 11) to fit 760 px
+      var px = MENU_TOUCH_PX;
+      while (px > 11 && measure(text, 'bold ' + px + 'px Verdana, sans-serif') > 760) px--;
+      hf = 'bold ' + px + 'px Verdana, sans-serif';
+    }
+    var t = textSprite(text, hf, '#FFFFFF', '#000000');
     var c = newCanvas(t.width + 16, t.height + 6), x = c.getContext('2d');
     x.fillStyle = PLATE; roundRect(x, 0, 0, c.width, c.height, 6); x.fill();
     x.drawImage(t, 8, 3);
@@ -429,6 +445,7 @@
     return 4 + Math.max(h, 48) + 4;
   }
 
+  var topBox = { l: 0, r: 0, b: 0 };           // touch: pager + hint box this frame (edge arrow avoids it)
   var plates = [0, 0, 0, 0, 0, 0, 0, 0];   // score + CASE plate rects (x, y, w, h) for the edge arrow
   function plate(ctx, spr, x, y, slot) {
     var o = slot * 4;
@@ -447,6 +464,8 @@
       var o = k * 4;
       if (x + 16 > plates[o] && x - 16 < plates[o] + plates[o + 2] && y - 16 < plates[o + 1] + plates[o + 3]) y = plates[o + 1] + plates[o + 3] + 18;
     }
+    // v1.1.2 touch: the wide pager / case-1 hint (top center): slide sideways along the top edge past them
+    if (topBox.b > 0 && y - 16 < topBox.b && x + 16 > topBox.l && x - 16 < topBox.r) x = x < cam.w / 2 ? topBox.l - 18 : topBox.r + 18;
     var m = Math.round(sc.d / 16);
     if (changed(memoMeters, m)) memoMeters.s = textSprite(m + 'm', FONT, GREEN, '#000000');
     var label = memoMeters.s;
@@ -491,9 +510,16 @@
     spr = memoCase.s;
     plate(ctx, spr, W - 10 - spr.width, 8, 1);
     var sc = gs.scandal;
+    var pt = now - st.pagerT0;
+    topBox.b = 0;
+    if (touchMenus()) {
+      var tw = 0;
+      if (pt >= 0 && pt < 5 && st.pagerText) { tw = getPager().width; topBox.b = 4 + getPager().height; }
+      if (gs.caseNo === 1 && sc && sc.status === 'live') { tw = Math.max(tw, hintSprite().width); topBox.b = hintY(gs) + hintSprite().height; }
+      topBox.l = Math.round((W - tw) / 2); topBox.r = topBox.l + tw;
+    }
     if (sc && sc.status === 'live') drawEdgeArrow(ctx, cam || { x: 0, y: 0, w: W, h: H }, sc);
     // pager (5 s on spawn, blinks for the first 0.6 s)
-    var pt = now - st.pagerT0;
     if (pt >= 0 && pt < 5 && st.pagerText) {
       spr = getPager();
       if (pt > 0.6 || Math.floor(pt * 10) % 2 === 0) {
@@ -531,8 +557,8 @@
       ctx.fillStyle = '#000000'; ctx.fillRect(ix, iy + 34, 44, 4);
       ctx.fillStyle = '#FFFFFF'; ctx.fillRect(ix, iy + 34, Math.round(44 * (1 - cd / CD)), 4);
     }
-    if (prox === 2) ctx.drawImage(fixed.inRange, Math.round(ix + 22 - fixed.inRange.width / 2), iy + 38);
-    else if (prox === 1) ctx.drawImage(fixed.near, Math.round(ix + 22 - fixed.near.width / 2), iy + 38);
+    var lab = prox === 2 ? fixed.inRange : (prox === 1 ? fixed.near : null);
+    if (lab) ctx.drawImage(lab, Math.min(W - 2 - lab.width, Math.round(ix + 22 - lab.width / 2)), Math.min(H - lab.height, iy + 38));
     if (PE.sfx && PE.sfx.muted) ctx.drawImage(fixed.muted, 10, H - 24);
     // shutter flash 120 ms
     var ft = now - st.flashT0;
@@ -547,6 +573,7 @@
   // v1.1.1: touch-mode menu text >= 12 CSS px on a 740x360 phone (canvas scale ~0.667 -> 18 canvas px).
   // Desktop (PE.touch.enabled false) keeps the original sizes. Decided at cache-build time only.
   var MENU_TOUCH_PX = 18;
+  var PAGER_TOUCH_TEXT_W = 560;   // pager tip wrap budget (canvas px) at bold 18 px; pager spans x 182..778
   function touchMenus() { return !!(PE.touch && PE.touch.enabled); }
   // centered text that shrinks (never below 11 px) if a line would not fit maxW
   function centerFit(x, text, y, px, color, W, maxW) {

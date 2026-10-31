@@ -42,7 +42,7 @@
     {
       id: 'affair',
       title: 'The Boulevard Affair',
-      tip: 'Banker Avner + his "trainer" at {area}.',
+      tip: 'Banker Avner + "trainer" at {area}.',
       caption: 'BANKER\'S "TRAINER" WORKS ON HIS LIPS',
       kinds: ['boulevard', 'park'],
       roles: [

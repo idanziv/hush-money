@@ -14,6 +14,7 @@
   var people = [];                // reused draw list
   var frameEv = [];               // reused frame event list
   var lastProx = 0;
+  var resultsAt = 0;              // clock when the results screen opened (touch restart guard)
   var errMsg = null, errSeen = Object.create(null);
 
   function C() { return PE.CFG || {}; }
@@ -89,7 +90,7 @@
     }
   }
   function onKeyUp(e) { keys[e.code || e.key] = false; }
-  function clearKeys() { for (var k in keys) keys[k] = false; }
+  function clearKeys() { for (var k in keys) keys[k] = false; if (PE.touch) PE.touch.release(); }
 
   function readInput() {
     input.up = !!(keys.KeyW || keys.ArrowUp);
@@ -97,7 +98,18 @@
     input.left = !!(keys.KeyA || keys.ArrowLeft);
     input.right = !!(keys.KeyD || keys.ArrowRight);
     input.sprint = !!(keys.ShiftLeft || keys.ShiftRight || keys.Shift);
+    if (PE.touch) PE.touch.read(input);
   }
+
+  // touch.js drives the same state machine as the keys above
+  var touchApi = {
+    state: function () { return state; },
+    shoot: function () { if (state === 'playing') photoQueued = true; },
+    pause: function () { if (state === 'playing') { state = 'paused'; photoQueued = false; } },
+    resume: function () { if (state === 'paused') { state = 'playing'; lastT = 0; } },
+    start: function () { if (state !== 'results' || clock - resultsAt > 0.8) startRun(); },
+    mute: function () { if (PE.sfx) PE.sfx.toggleMute(); }
+  };
 
   // ---------------------------------------------------------------- update
   function handleEvents(gs) {
@@ -138,7 +150,7 @@
     }
     if (steps >= 5 && acc >= DT) acc = 0;     // spiral-of-death guard
     handleEvents(gs);
-    if (gs.over) { state = 'results'; photoQueued = false; }
+    if (gs.over) { state = 'results'; photoQueued = false; resultsAt = clock; }
   }
 
   // ---------------------------------------------------------------- render
@@ -223,7 +235,8 @@
     } else {
       renderWorld(gs, cam, true);
       if (state !== 'results') PE.ui.drawHUD(ctx, gs, cam);
-      if (state === 'paused') PE.ui.drawPause(ctx);
+      if (state === 'playing' && PE.touch) PE.touch.draw(ctx, gs.scandal && gs.scandal.status === 'live' ? gs.scandal.prox : 0);
+      if (state === 'paused') { PE.ui.drawPause(ctx); if (PE.touch) PE.touch.drawPause(ctx, PE.sfx && PE.sfx.muted); }
       if (state === 'results') PE.ui.drawResults(ctx, gs);
     }
     if (debug) drawDebug(gs, cam);
@@ -278,6 +291,10 @@
       PE.art.init();
       PE.city.init();
       PE.city.initGraphics();
+      if (PE.touch) {
+        PE.touch.init(canvas, touchApi);
+        if (PE.touch.enabled && PE.TEXT && PE.TEXT_TOUCH) for (var tk in PE.TEXT_TOUCH) PE.TEXT[tk] = PE.TEXT_TOUCH[tk];
+      }
       PE.ui.init(canvas);
       PE.game.newRun(newSeed());
       PE.game.frameEvents = frameEv;
@@ -287,6 +304,9 @@
       window.addEventListener('keyup', onKeyUp);
       window.addEventListener('blur', clearKeys);
       window.addEventListener('pointerdown', function () { if (PE.sfx) PE.sfx.init(); });
+      // iOS unlocks audio only on touchend / pointerup, not on a touch pointerdown
+      window.addEventListener('pointerup', function () { if (PE.sfx) PE.sfx.init(); });
+      window.addEventListener('touchend', function () { if (PE.sfx) PE.sfx.init(); });
       document.addEventListener('visibilitychange', function () {
         if (document.hidden) { clearKeys(); if (state === 'playing') { state = 'paused'; photoQueued = false; } }
         lastT = 0;

@@ -468,4 +468,18 @@
     pause: 'PAUSED - P / Esc to resume, R to restart',
     resultsHint: 'R / Enter: blackmail again'
   };
+
+  // Phones / tablets (coarse pointer): main.js copies these over PE.TEXT at boot.
+  PE.TEXT_TOUCH = {
+    controls: [
+      'Left thumb - drag to walk',
+      'Push to the rim - jog',
+      'Tap the right side - take photo',
+      'II (top right) - pause, restart, sound',
+      'Play in landscape. iPhone silent switch mutes sound.'
+    ],
+    start: 'Tap to start',
+    pause: 'Tap anywhere else to resume',
+    resultsHint: 'Tap to blackmail again'
+  };
 })(globalThis.PE = globalThis.PE || {});

@@ -105,7 +105,7 @@ Headless rule: nothing touches `document`/`window`/canvas at load. `data logic c
 ## 13. File layout & ownership (exactly one owner per file)
 | File | Owner |
 |---|---|
-| index.html, js/logic.js, js/game.js, js/ui.js, js/sfx.js, js/main.js | eng-lead |
+| index.html, js/logic.js, js/game.js, js/ui.js, js/sfx.js, js/touch.js (mobile controls, v1.1), js/main.js | eng-lead |
 | js/art.js, js/city.js | world-artist |
 | js/data.js, js/npc.js | design-writer |
 | tests/run.js, tests/spec.js, tests/*.test.js | qa |

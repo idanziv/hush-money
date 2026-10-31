@@ -20,6 +20,13 @@ No installation needed. The game is plain HTML and JavaScript, and every graphic
 
 Click the game once if the keyboard doesn't respond. The game scales to fit the window, and F11 (Windows) or Ctrl+Cmd+F (Mac) gives you fullscreen.
 
+### Phone or tablet (iPhone, iPad, Android)
+1. Open https://idanziv.github.io/hush-money/ in Safari or Chrome.
+2. Turn the phone sideways (landscape). Tap to start. On Android the game also goes fullscreen.
+3. Touch controls: drag your **left thumb** anywhere on the left half to walk (push to the rim of the stick to jog), and **tap the right half** to take a photo. The **II** button (top right) pauses and has Restart and Sound buttons.
+4. No sound on iPhone? Flip the silent switch off and turn the volume up.
+5. Tip: in Safari, Share > **Add to Home Screen** gives you a full-screen game icon.
+
 ### Fallback: local web server (optional)
 The game is built to run straight from the file. If a locked-down browser blocks local files anyway, serve the folder instead:
 - **If Node.js is installed** (check with `node --version`), open a terminal in the game folder:
@@ -63,6 +70,8 @@ A run has 6 cases and lasts about 2 minutes. At the end, your **blackmail portfo
 | Enter | Start / play again |
 | M | Mute / unmute |
 | ` (backquote) | Debug overlay (FPS) |
+
+On a touchscreen: left thumb drags to walk, tap the right side to shoot, II pauses.
 
 ## Troubleshooting
 - **Black screen or an error message on screen:** make sure the whole folder was copied, including the `js` folder next to `index.html`. Then reload (Cmd+R / Ctrl+R).

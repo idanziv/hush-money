@@ -48,7 +48,7 @@
     var c = newCanvas(BTN_W, BTN_H), x = c.getContext('2d');
     x.fillStyle = 'rgba(37,29,43,0.95)'; x.fillRect(0, 0, BTN_W, BTN_H);
     x.lineWidth = 2; x.strokeStyle = '#FFD23F'; x.strokeRect(1, 1, BTN_W - 2, BTN_H - 2);
-    x.fillStyle = '#FFFFFF'; x.font = 'bold 15px Verdana, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillStyle = '#FFFFFF'; x.font = 'bold 18px Verdana, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';   // 12 CSS px at 740x360
     x.fillText(text, BTN_W / 2, BTN_H / 2 + 1);
     return c;
   }

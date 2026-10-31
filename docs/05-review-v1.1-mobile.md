@@ -38,3 +38,16 @@ The client asked for mobile play. The producer wrote touch support alone and pus
 
 ## Sign-off
 Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fixed and covered by tests. **Verdict: SHIP v1.1**, once the reviewed build replaces the live one. The real-device check stays open with the client.
+
+## v1.1.1: touch menu text (action item closed)
+- eng-lead (ui.js, touch mode only, chosen at cache time):
+  - Title and pause controls 13 -> 18 canvas px (12.0 CSS px at 740x360), title line spacing 22 -> 26.
+  - Pause hint 14 -> 18, moved to y 444 above the buttons.
+  - Results hint 12 -> 18, results footer moved up 8 px.
+  - RESTART/SOUND labels 15 -> 18.
+  - Lines shrink to fit but never below 11 px. Desktop unchanged; data.js wording fits as is.
+- QA: fits at 740x360 and 667x375, RESTART/SOUND work, no overlap on a NEW BEST results screen, desktop matches v1.1, 135/135, 0 console errors.
+- Decision: the HUD pager tip (11 px, ~7.3 CSS px on a phone) is the scandal's who-and-where, so it becomes an action item for v1.1.2, not a deferral.
+  - eng-lead: enlarge it in touch mode; design-writer: check the longest tip (53 chars) still fits; QA: re-check at 667x375.
+- Deferred: on a touchscreen laptop with a fine pointer, touch mode starts at the first touch, so menus already drawn keep desktop sizes until a reload. It's rare, cosmetic and fixed by a reload.
+- **Sign-off: SHIP v1.1.1.** Dana.

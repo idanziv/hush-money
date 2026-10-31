@@ -544,6 +544,17 @@
   };
 
   // ---------------------------------------------------------------- screens
+  // v1.1.1: touch-mode menu text >= 12 CSS px on a 740x360 phone (canvas scale ~0.667 -> 18 canvas px).
+  // Desktop (PE.touch.enabled false) keeps the original sizes. Decided at cache-build time only.
+  var MENU_TOUCH_PX = 18;
+  function touchMenus() { return !!(PE.touch && PE.touch.enabled); }
+  // centered text that shrinks (never below 11 px) if a line would not fit maxW
+  function centerFit(x, text, y, px, color, W, maxW) {
+    var f = 'bold ' + px + 'px Verdana, sans-serif';
+    while (px > 11 && measure(text, f) > maxW) { px--; f = 'bold ' + px + 'px Verdana, sans-serif'; }
+    centerText(x, text, y, f, color, W);
+  }
+
   function controlsList() {
     var c = TXT().controls;
     if (c && c.length) return c;
@@ -568,7 +579,11 @@
       x.fillStyle = GOLD; x.fillText(T.title || 'HUSH MONEY', W / 2, 140);
       centerText(x, T.subtitle || 'Photograph the scandal. Sell the silence.', 200, 'bold 18px Verdana, sans-serif', '#FFFFFF', W);
       var cl = controlsList();
-      for (var i = 0; i < cl.length; i++) centerText(x, cl[i], 258 + i * 22, 'bold 13px Verdana, sans-serif', '#D8D0C0', W);
+      var big = touchMenus(), step = big ? 26 : 22;
+      for (var i = 0; i < cl.length; i++) {
+        if (big) centerFit(x, cl[i], 258 + i * step, MENU_TOUCH_PX, '#D8D0C0', W, W - 40);
+        else centerText(x, cl[i], 258 + i * 22, 'bold 13px Verdana, sans-serif', '#D8D0C0', W);
+      }
     }
     ctx.drawImage(titleCanvas, 0, 0);
     if (Math.floor(N(t, 0) * 2) % 2 === 0) ctx.drawImage(fixed.start, Math.round((W - fixed.start.width) / 2), H - 70);
@@ -583,9 +598,16 @@
       x.fillStyle = 'rgba(0,0,0,0.6)'; x.fillRect(0, 0, W, H);
       centerText(x, 'PAUSED', 130, 'bold 44px Verdana, sans-serif', GOLD, W);
       var cl = controlsList();
-      for (var i = 0; i < cl.length; i++) centerText(x, cl[i], 200 + i * 22, 'bold 13px Verdana, sans-serif', '#FFFFFF', W);
-      var hint = wrap(TXT().pause || 'P / Esc: resume    R: restart    M: mute', 'bold 14px Verdana, sans-serif', W - 80).slice(0, 2);
-      for (var j = 0; j < hint.length; j++) centerText(x, hint[j], H - 90 + j * 20, 'bold 14px Verdana, sans-serif', '#D8D0C0', W);
+      var big = touchMenus();
+      for (var i = 0; i < cl.length; i++) {
+        if (big) centerFit(x, cl[i], 196 + i * 26, MENU_TOUCH_PX, '#FFFFFF', W, W - 40);
+        else centerText(x, cl[i], 200 + i * 22, 'bold 13px Verdana, sans-serif', '#FFFFFF', W);
+      }
+      var hf = big ? 'bold ' + MENU_TOUCH_PX + 'px Verdana, sans-serif' : 'bold 14px Verdana, sans-serif';
+      var hint = wrap(TXT().pause || 'P / Esc: resume    R: restart    M: mute', hf, W - 80).slice(0, 2);
+      // touch: the hint sits above the RESTART / SOUND buttons (touch.js, y 478..518)
+      var hy = big ? (hint.length > 1 ? H - 120 : H - 96) : H - 90, hs = big ? 24 : 20;
+      for (var j = 0; j < hint.length; j++) centerText(x, hint[j], hy + j * hs, hf, '#D8D0C0', W);
     }
     ctx.drawImage(pauseCanvas, 0, 0);
   };
@@ -631,14 +653,15 @@
       x.fillText(r.label || '', tx, py + 24);
       if (r.photo) { x.fillStyle = '#B8B0C0'; x.fillText(fmtDt(r.dt), tx, py + 38); }
     }
-    var fyy = y0 + 2 * (ch + 10) + 8;
+    var fyy = y0 + 2 * (ch + 10) + (touchMenus() ? 0 : 8);   // touch: room for the 18 px hint below
     var pen = gs.score - sum;
     centerText(x, 'TOTAL  ' + logic.formatShekels(gs.score) + (pen < 0 ? '   (wasted film ' + logic.formatShekels(pen) + ')' : ''),
       fyy + 12, 'bold 20px Verdana, sans-serif', gs.score < 0 ? RED : GOLD, W);
     centerText(x, logic.rankFor(gs.score, C()), fyy + 40, 'bold 16px Verdana, sans-serif', '#FFFFFF', W);
     var bestTxt = st.newBest ? 'NEW BEST SCORE!' : ('Best: ' + (st.best === null ? '-' : logic.formatShekels(st.best)));
     centerText(x, bestTxt, fyy + 62, 'bold 12px Verdana, sans-serif', st.newBest ? CYAN : '#CFC6D8', W);
-    centerText(x, TXT().resultsHint || 'R / Enter: blackmail again', H - 14, 'bold 12px Verdana, sans-serif', '#D8D0C0', W);
+    if (touchMenus()) centerFit(x, TXT().resultsHint || 'R / Enter: blackmail again', H - 11, MENU_TOUCH_PX, '#D8D0C0', W, W - 40);
+    else centerText(x, TXT().resultsHint || 'R / Enter: blackmail again', H - 14, 'bold 12px Verdana, sans-serif', '#D8D0C0', W);
     return c;
   }
 

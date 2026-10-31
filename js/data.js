@@ -472,11 +472,11 @@
   // Phones / tablets (coarse pointer): main.js copies these over PE.TEXT at boot.
   PE.TEXT_TOUCH = {
     controls: [
-      'Left thumb - drag to walk',
-      'Push to the rim - jog',
-      'Tap the right side - take photo',
+      'Left half - drag to walk',
+      'Drag to the rim - jog',
+      'Right half / SNAP - take photo',
       'II (top right) - pause, restart, sound',
-      'Play in landscape. iPhone silent switch mutes sound.'
+      'No sound? Check your phone is not on silent.'
     ],
     start: 'Tap to start',
     pause: 'Tap anywhere else to resume',

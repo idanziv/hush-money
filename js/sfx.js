@@ -6,8 +6,20 @@
   var S = { muted: false };
   var ac = null, master = null, noiseBuf = null, failed = false;
 
+  // iOS: the context starts (or returns from a call/background as 'interrupted') suspended; it only unlocks
+  // inside a touchend/pointerup gesture, and older WebKit also needs a buffer started in that gesture.
+  function wake() {
+    if (!ac || ac.state === 'running') return;     // retried on every gesture until it runs
+    try {
+      if (ac.resume) { var p = ac.resume(); if (p && p.catch) p.catch(function () {}); }
+      var src = ac.createBufferSource();
+      src.buffer = ac.createBuffer(1, 1, 22050);
+      src.connect(ac.destination); src.start(0);
+    } catch (e) { /* ignore: try again on the next gesture */ }
+  }
+
   S.init = function () {
-    if (ac || failed) { if (ac && ac.state === 'suspended' && ac.resume) { try { ac.resume(); } catch (e) { /* ignore */ } } return; }
+    if (ac || failed) { wake(); return; }
     try {
       var AC = globalThis.AudioContext || globalThis.webkitAudioContext;
       if (!AC) { failed = true; return; }
@@ -19,6 +31,7 @@
       noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
       var d = noiseBuf.getChannelData(0), seed = 12345;
       for (var i = 0; i < len; i++) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; d[i] = (seed / 0x3fffffff) - 1; }
+      wake();
     } catch (e) { failed = true; ac = null; }
   };
 
@@ -59,7 +72,7 @@
     var fn = SOUNDS[name];
     if (!fn) return;
     try {
-      if (ac.state === 'suspended' && ac.resume) ac.resume();
+      if (ac.state !== 'running') wake();
       fn(ac.currentTime + 0.005);
     } catch (e) { /* never break the game for audio */ }
   };

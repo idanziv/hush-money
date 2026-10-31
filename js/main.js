@@ -58,6 +58,7 @@
     PE.game.frameEvents = frameEv; frameEv.length = 0;
     updateCam();
     acc = 0; photoQueued = false; lastProx = 0;
+    if (PE.touch) PE.touch.release();          // a finger still down from the menu/last run must not walk the new run
     state = 'playing';
   }
 

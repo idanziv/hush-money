@@ -1,0 +1,40 @@
+# 05 - Review v1.1: mobile (touch) release
+Attendees: Dana Regev (director), Yoni Mizrahi (eng-lead), Tamar Levi (design-writer), Omer Katz (qa), producer. (Noa Ben-Ami: no art changes.)
+Inputs: builder reports (eng-lead, design-writer), QA phases A + B. Hosted (temporarily) at https://idanziv.github.io/hush-money/ from the repo's main branch.
+
+## What happened
+The client asked for mobile play. The producer wrote touch support alone and pushed it live without the studio. The client called it out. The team then reviewed the live build: Yoni took ownership of the code, Tamar of the wording, Omer of the tests and the browser check.
+
+## Transcript
+**DANA (director):** First the process. A game change went live that nobody on the team built, reviewed or tested. That's on us as a studio, not only on the producer.
+**PRODUCER:** Agreed. It looked small, and I shipped it straight to the hosted build.
+**DANA (director):** New rule, effective now: every game change goes through the team: owner builds, QA verifies, I sign off. The producer writes briefs, relays, and handles git and hosting. No code, no wording.
+**OMER (qa):** And the review paid off. My 26 touch tests run 135/135 on the fixed copy, but against the committed live touch.js two of them fail.
+**YONI (eng-lead):** Bug 1: stick drift. Touch down near the left or bottom edge and the stick centre was clamped away from the finger, so the player walked without the thumb moving. Now the centre is the finger and only the drawn base is clamped.
+**YONI (eng-lead):** Bug 2: in portrait the rotate overlay covered the game, but taps still walked, shot or started a run behind it. Now portrait blocks all input. A title tap in portrait only asks for fullscreen and the landscape lock.
+**YONI (eng-lead):** Also: iPad fullscreen through the webkit call; startRun releases the touch state; and the iOS audio unlock resumes a suspended or interrupted context and plays a one-sample silent buffer on each gesture until it runs.
+**TAMAR (design-writer):** Touch controls text rewritten: left half to walk, rim to jog, right half or SNAP to shoot, II for pause, restart and sound, plus a silent-switch hint. I dropped "iPhone" from game text (no brands) and the landscape line, since the overlay says it.
+**TAMAR (design-writer):** One flag: the longest line, 44 characters, renders about 9.5 CSS px tall on a phone. Readable, but small. Font size is a ui.js call.
+**DANA (director):** Yoni's call, and my ruling is: fix it, but it doesn't block v1.1. Menu text on touch goes to at least 12 CSS px in v1.1.1.
+**OMER (qa):** Browser pass at 740x360 with touch pointer events: a full run by stick and SNAP, 6x PERFECT, 9,000. Thumb on the stick plus a second finger on pause: it pauses, the stick drops, and lifting either finger doesn't resume.
+**OMER (qa):** Pause menu: SOUND toggles and stays paused, RESTART starts a fresh run. Rotating to portrait mid-run pauses, shows the overlay and blocks taps; back in landscape it stays paused until a tap. The results guard ignores taps at 0 and 0.5 s and restarts at 1.1 s.
+**OMER (qa):** 0 console errors, 8,718 frames at avg 16.68 ms, p99 16.8. Desktop is unchanged: touch off, the mouse does nothing, keyboard play works.
+**OMER (qa):** Not tested on real hardware: iPhone audio and the silent switch, including after a call or an app switch; fullscreen and orientation lock on Android and iPad; real multi-touch and its latency.
+**DANA (director):** The client has the phone, so the client is the real-device check. I've updated the README phone section to match the final behaviour.
+
+## Decisions
+- Process rule: all game changes go team -> QA -> Dana sign-off. Producer = briefs, relays, git, hosting only.
+- Both live bugs (edge stick drift; input behind the portrait overlay) fixed by eng-lead; QA regression tests cover them.
+- Touch text size (~9.5 CSS px): fix in v1.1.1 (eng-lead, ui.js), not a v1.1 blocker.
+- Spec `01`: touch line in section 2 + changelog. README: phone section and touch controls line rewritten.
+
+## Action items
+| Owner | Item | Due |
+|---|---|---|
+| producer | Push the reviewed build (eng-lead fixes, data.js text, touch.test.js, README, docs) to main | v1.1 |
+| client (user) | Real-device check on your own phone: sound (silent switch, after a call/app switch), rotate mid-run, thumb + second finger, Add to Home Screen; send findings to the producer | after v1.1 |
+| eng-lead | Touch menu text >= 12 CSS px on phones (ui.js); QA re-checks fit at 740x360 | v1.1.1 |
+| producer | Route any real-device findings as briefs to the owners; no solo fixes | v1.1.1 |
+
+## Sign-off
+Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fixed and covered by tests. **Verdict: SHIP v1.1**, once the reviewed build replaces the live one. The real-device check stays open with the client.

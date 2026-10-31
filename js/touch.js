@@ -64,12 +64,15 @@
   function isTouch(e) { return e.pointerType === 'touch' || e.pointerType === 'pen'; }
   function inRect(p, x, y, w, h) { return p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h; }
   function portrait() { return globalThis.innerHeight > globalThis.innerWidth; }
+  function blocked() { return T.enabled && portrait(); }   // #rotate overlay covers the canvas
 
   function goFullscreen() {
     var d = document.documentElement;
-    if (document.fullscreenElement || !d.requestFullscreen) return;
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
+    var req = d.requestFullscreen || d.webkitRequestFullscreen;   // iPad Safari: webkit only; iPhone: none
+    if (!req) return;
     try {
-      var p = d.requestFullscreen({ navigationUI: 'hide' });
+      var p = req.call(d, { navigationUI: 'hide' });
       if (p && p.then) p.then(function () {
         if (globalThis.screen && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(function () {});
       }).catch(function () {});
@@ -81,13 +84,13 @@
     T.enabled = true;
     if (e.cancelable) e.preventDefault();
     if (api.state() !== 'playing') { menuId = e.pointerId; return; }   // menus act on pointerup (a real tap)
+    if (blocked()) return;                                              // no walking/shooting behind #rotate
     var p = toGame(e);
     if ((p.x - PAUSE_X) * (p.x - PAUSE_X) + (p.y - PAUSE_Y) * (p.y - PAUSE_Y) <= PAUSE_HIT * PAUSE_HIT) { api.pause(); stick.id = -1; return; }
     if (p.x < W / 2) {
       if (stick.id !== -1) return;
       stick.id = e.pointerId;
-      stick.bx = Math.max(R + 10, Math.min(W / 2 - R, p.x));
-      stick.by = Math.max(R + 10, Math.min(H - R - 10, p.y));
+      stick.bx = p.x; stick.by = p.y;          // base at the finger: zero deflection on touch-down
       stick.kx = p.x; stick.ky = p.y;
     } else if (p.y > TOP_BAND) {
       api.shoot(); shotT = now();
@@ -106,6 +109,7 @@
     menuId = -1;
     if (!isTouch(e) || e.type === 'pointercancel') return;
     var st = api.state(), p = toGame(e);
+    if (blocked()) { if (st === 'title') goFullscreen(); return; }     // fullscreen + landscape lock, no start yet
     if (st === 'title') { goFullscreen(); api.start(); }
     else if (st === 'results') api.start();
     else if (st === 'paused') {
@@ -173,8 +177,10 @@
     var dx = stick.kx - stick.bx, dy = stick.ky - stick.by, len = Math.sqrt(dx * dx + dy * dy);
     var f = len > R ? R / len : 1;
     k = len >= R ? spr.knobJog : spr.knob;
-    ctx.drawImage(spr.base, Math.round(stick.bx - spr.base.width / 2), Math.round(stick.by - spr.base.height / 2));
-    ctx.drawImage(k, Math.round(stick.bx + dx * f - k.width / 2), Math.round(stick.by + dy * f - k.height / 2));
+    // draw the base fully on screen even when the finger went down at an edge (logic still uses the finger)
+    var bx = Math.max(R + 4, Math.min(W / 2 - R, stick.bx)), by = Math.max(R + 4, Math.min(H - R - 4, stick.by));
+    ctx.drawImage(spr.base, Math.round(bx - spr.base.width / 2), Math.round(by - spr.base.height / 2));
+    ctx.drawImage(k, Math.round(bx + dx * f - k.width / 2), Math.round(by + dy * f - k.height / 2));
   };
 
   T.drawPause = function (ctx, muted) {

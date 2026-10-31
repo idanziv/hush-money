@@ -2,9 +2,10 @@
 Owner: Dana Regev (creative director). Only Dana edits this file. Contract change requests go in your milestone report; never edit a file you don't own.
 Changelog: v0.1 kickoff. v0.2 (review 1, see `03`): RISE 14->11, FALL 8->7, GAP 4->3, FIRST_DELAY 3->2, ambient bubble cap 4->3; distinct peak cue at t=RISE (fx pop + flare + sfx), lean-in before it; one scandal bubble at a time; #39FF14 ruling; proximity visuals reworked; player marker + outlines; multiple player starts; spawn planner approved; contract rulings in 14.
 v0.3 RC (review 2, see `04`): PERFECT_WINDOW 0.35->0.25; bold peak flare (6 px ring + 80 ms white flash disc); hint1 teaches anticipation; polaroid captured before overlay (no bubbles); near ring alpha 0.4; scandal bubble + arrow avoid HUD plates; no peak event if busted during lean-in; reactToPhoto max 3.
+v1.1 (mobile, see `05`): touch controls + portrait block + iOS audio unlock; hosted on GitHub Pages. Rule: every game change goes through the team; the producer only writes briefs, relays, git and hosting.
 
 ## 0. Docs policy
-- All docs live in `docs/`, numbered: `01-design-and-tech-spec.md`, `02-meeting-kickoff.md`, `03-review-v0.1.md`, `04-review-v0.2.md`, `05-ship-v1.0.md`. Root `README.md` = player-facing run instructions (written at ship).
+- All docs live in `docs/`, numbered: `01-design-and-tech-spec.md`, `02-meeting-kickoff.md`, `03-review-v0.1.md`, `04-review-v0.2.md`, `05-review-v1.1-mobile.md`. Root `README.md` = player-facing run instructions (written at ship).
 - One file per meeting/feedback loop, containing BOTH the transcript (`**NAME (role):** line`) and an `Action items` table (owner | item | due). Every .md < ~200 lines. Target <= 8 doc files total. Hires report to Dana; Dana writes the docs.
 
 ## 1. Pitch & core loop
@@ -22,6 +23,7 @@ Top-down 2D (GTA2-style) city, a small Tel Aviv. You are a sleazy private eye. A
 | M | Mute / unmute |
 | ` (backquote) or `?debug=1` | Debug overlay: FPS, update/render ms, spot markers |
 URL `?seed=123` forces the run seed (QA). Arrow keys and Space must `preventDefault` (no page scroll).
+Touch (v1.1, `js/touch.js`; on when `pointer: coarse` or after the first touch): floating stick on the left half (dead zone 0.22 R, rim = jog), right half below the 52 px HUD band = photo (SNAP), II button = pause with RESTART / SOUND, tap elsewhere resumes. Portrait shows a rotate overlay, pauses and blocks all input; the first title tap requests fullscreen + landscape lock where supported. `PE.TEXT_TOUCH` (data.js) replaces controls/start/pause/resultsHint on touch. Mouse is ignored; keyboard play is unchanged.
 
 ## 3. Session structure & screens
 States (main.js): `title -> playing <-> paused -> results -> playing`.

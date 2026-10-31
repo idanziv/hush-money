@@ -2,6 +2,8 @@
 
 A small top-down 2D browser game set in a pocket-sized Tel Aviv. You are a sleazy private eye. Scandals break out around the city: an affair on the boulevard, a bribe at a cafe, an influencer dumping trash on the beach. Get there, catch the moment on camera, and get paid to keep quiet.
 
+**Play online:** https://idanziv.github.io/hush-money/ (temporary home on GitHub Pages)
+
 No installation needed. The game is plain HTML and JavaScript, and every graphic and sound is generated inside the browser.
 
 ## Run it

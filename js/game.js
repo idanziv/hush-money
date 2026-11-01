@@ -11,6 +11,7 @@
   var actorList = [];      // reused output of actors()
   var defaultCam = { x: 0, y: 0, w: 960, h: 540 };
   var mv = { x: 0, y: 0 };  // reused moveAndCollide output
+  var LEAN_WALK_MIN_SPEED = 6;   // px/s: below this the eased lean-in reads as standing (no walk cycle)
   var LEAN_FRACTION = 0.6;   // lean-in travels over the first 60% of ACTION_LEAD, then holds for the RISE pop
   var input0 = { up: false, down: false, left: false, right: false, sprint: false, photo: false };
 
@@ -312,7 +313,7 @@
     // Arrives at RISE - (1 - LEAN_FRACTION) * ACTION_LEAD and holds still for the pop.
     var L0 = RISE - N(cfg.ACTION_LEAD, 1), LD = N(cfg.ACTION_LEAD, 1) * LEAN_FRACTION;
     var u = LD > 0 ? Math.max(0, Math.min(1, (sc.t - L0) / LD)) : 1;
-    var e = 0.5 * u + 0.5 * u * u * (3 - 2 * u);      // half linear + half smoothstep: soft ends, no long tail
+    var e = u * u * (3 - 2 * u);                       // v1.1.6 smoothstep: starts and ends at zero velocity
     for (var i = 0; i < sc.actors.length; i++) {
       var a = sc.actors[i], ro = roles[i] || {}, b = a.brain;
       a.glow = sc.intensity;
@@ -323,7 +324,7 @@
         var nx = b.lx0 + (tx - b.lx0) * e, ny = b.ly0 + (ty - b.ly0) * e;
         var step = Math.sqrt((nx - a.x) * (nx - a.x) + (ny - a.y) * (ny - a.y));
         a.x = nx; a.y = ny;
-        if (u < 1 && step > 0) {                           // walk cycle only while travelling, legs at ground speed
+        if (u < 1 && dt > 0 && step / dt >= LEAN_WALK_MIN_SPEED) {   // legs only while visibly travelling, at ground speed
           a.moving = true;
           a.animT += step / N(cfg.NPC_SPEED, 55);
         }

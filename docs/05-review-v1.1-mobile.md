@@ -87,3 +87,8 @@ Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fix
 - Abrupt arrival (the ease ends at half speed): fix next. The client is watching exactly this motion. Action item v1.1.6 (eng-lead): end the ease at zero velocity, keep the same ~10.6 arrival; QA re-runs the per-step test. Not a blocker for v1.1.5.
 - Open with the client: Pixel re-check, thumb + second finger, Add to Home Screen.
 - **Sign-off: SHIP v1.1.5.** Dana.
+
+## v1.1.6: soft lean-in arrival (v1.1.5 action item closed)
+- eng-lead (game.js): smoothstep over the same 0.6x ACTION_LEAD window (zero speed at both ends); legs animate only at >= 6 px/s. RISE, pop, scoring and DT unchanged.
+- QA: 139/139. At 60/90/120 Hz and jittery 60 Hz the arrival is soft; last move t 10.52-10.58, still after 10.6; legs on once, off once; 0 px snap at the pop; 6x PERFECT; p99 16.8 ms, 0 console errors.
+- **Sign-off: SHIP v1.1.6.** Dana. Open with the client: Pixel re-check, thumb + second finger, Add to Home Screen.

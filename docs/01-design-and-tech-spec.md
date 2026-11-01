@@ -3,6 +3,7 @@ Owner: Dana Regev (creative director). Only Dana edits this file. Contract chang
 Changelog: v0.1 kickoff. v0.2 (review 1, see `03`): RISE 14->11, FALL 8->7, GAP 4->3, FIRST_DELAY 3->2, ambient bubble cap 4->3; distinct peak cue at t=RISE (fx pop + flare + sfx), lean-in before it; one scandal bubble at a time; #39FF14 ruling; proximity visuals reworked; player marker + outlines; multiple player starts; spawn planner approved; contract rulings in 14.
 v0.3 RC (review 2, see `04`): PERFECT_WINDOW 0.35->0.25; bold peak flare (6 px ring + 80 ms white flash disc); hint1 teaches anticipation; polaroid captured before overlay (no bubbles); near ring alpha 0.4; scandal bubble + arrow avoid HUD plates; no peak event if busted during lean-in; reactToPhoto max 3.
 v1.1 (mobile, see `05`): touch controls + portrait block + iOS audio unlock; hosted on GitHub Pages. Rule: every game change goes through the team; the producer only writes briefs, relays, git and hosting.
+v1.1.4 (see `05`): render interpolation (acc/DT) for 90/120 Hz and jittery displays; the sim stays fixed at DT.
 
 ## 0. Docs policy
 - All docs live in `docs/`, numbered: `01-design-and-tech-spec.md`, `02-meeting-kickoff.md`, `03-review-v0.1.md`, `04-review-v0.2.md`, `05-review-v1.1-mobile.md`. Root `README.md` = player-facing run instructions (written at ship).
@@ -101,7 +102,7 @@ GTA2-like: saturated, chunky, sunset-warm. Sand #E8D3A0, sea #1E5F8F/#2A7FB8, as
 - Canvas 960x540, CSS-scaled 16:9 letterbox, pixelated, integer coords. Font `bold 11px Verdana, sans-serif`. No emoji.
 
 ## 12. Tech architecture & performance
-Vanilla JS + Canvas 2D; no frameworks, npm, build step, CDN or image files. Classic `<script>` tags; works from file:// and any static server. Fixed timestep `DT = 1/60`, max 5 steps/frame. Budget (M1 Air): update <= 2 ms, render <= 6 ms. No per-frame `shadowBlur`/filters/regex; caches capped at 200; cull with 64 px margin; no per-frame allocations in hot loops. Seeded RNG only (npc rng = seed ^ 0x9E3779B9).
+Vanilla JS + Canvas 2D; no frameworks, npm, build step, CDN or image files. Classic `<script>` tags; works from file:// and any static server. Fixed timestep `DT = 1/60`, max 5 steps/frame; render interpolates positions and camera by acc/DT (v1.1.4). Budget (M1 Air): update <= 2 ms, render <= 6 ms. No per-frame `shadowBlur`/filters/regex; caches capped at 200; cull with 64 px margin; no per-frame allocations in hot loops. Seeded RNG only (npc rng = seed ^ 0x9E3779B9).
 Headless rule: nothing touches `document`/`window`/canvas at load. `data logic city npc game` load and run init/update in Node.
 
 ## 13. File layout & ownership (exactly one owner per file)

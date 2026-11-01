@@ -16,6 +16,10 @@
   var lastProx = 0;
   var resultsAt = 0;              // clock when the results screen opened (touch restart guard)
   var errMsg = null, errSeen = Object.create(null);
+  // v1.1.4 render interpolation: the sim still steps at exactly DT; render shows the state lerped between the
+  // last two steps by alpha = acc / DT (fixes 0/1/0/1-step judder at 90/120 Hz and on jittery rAF timestamps).
+  var prevCam = { x: 0, y: 0 }, saveCam = { x: 0, y: 0 }, interpOn = false;
+  var framePeriod = 0;            // smoothed rAF period (s), absorbs timestamp jitter
 
   function C() { return PE.CFG || {}; }
   function N(v, d) { return (typeof v === 'number' && !isNaN(v)) ? v : d; }
@@ -58,6 +62,7 @@
     PE.game.frameEvents = frameEv; frameEv.length = 0;
     updateCam();
     acc = 0; photoQueued = false; lastProx = 0;
+    prevCam.x = PE.cam.x; prevCam.y = PE.cam.y;
     if (PE.touch) PE.touch.release();          // a finger still down from the menu/last run must not walk the new run
     state = 'playing';
   }
@@ -140,6 +145,7 @@
     acc += dtReal;
     var steps = 0;
     while (acc >= DT && steps < 5) {
+      snapshot(gs);
       readInput();
       input.photo = photoQueued; photoQueued = false;
       PE.game.update(DT, input);
@@ -152,6 +158,51 @@
     if (steps >= 5 && acc >= DT) acc = 0;     // spiral-of-death guard
     handleEvents(gs);
     if (gs.over) { state = 'results'; photoQueued = false; resultsAt = clock; }
+  }
+
+  // ---------------------------------------------------------------- interpolation (allocation-free)
+  function snapList(list) {
+    if (!list) return;
+    for (var i = 0; i < list.length; i++) { var o = list[i]; if (o) { o._ix = o.x; o._iy = o.y; } }
+  }
+  function snapshot(gs) {                      // positions before a sim step
+    var npc = PE.npc;
+    snapList(npc && npc.people); snapList(npc && npc.vehicles); snapList(PE.game.actors());
+    gs.player._ix = gs.player.x; gs.player._iy = gs.player.y;
+    prevCam.x = PE.cam.x; prevCam.y = PE.cam.y;
+  }
+  function lerpList(list, a) {
+    if (!list) return;
+    for (var i = 0; i < list.length; i++) lerpOne(list[i], a);
+  }
+  function lerpOne(o, a) {
+    if (!o) return;
+    o._sx = o.x; o._sy = o.y;                  // real position, restored after render
+    if (o._ix === undefined) return;           // spawned during the last step: no previous position
+    var dx = o.x - o._ix, dy = o.y - o._iy;
+    if (dx * dx + dy * dy > 4096) return;      // teleport (> 64 px): do not sweep
+    o.x = o._ix + dx * a; o.y = o._iy + dy * a;
+  }
+  function restoreList(list) {
+    if (!list) return;
+    for (var i = 0; i < list.length; i++) { var o = list[i]; if (o && o._sx !== undefined) { o.x = o._sx; o.y = o._sy; o._sx = undefined; } }
+  }
+  function interpBegin(gs) {
+    var DT = N(C().DT, 1 / 60), a = Math.max(0, Math.min(1, acc / DT)), npc = PE.npc, cam = PE.cam;
+    lerpList(npc && npc.people, a); lerpList(npc && npc.vehicles, a); lerpList(PE.game.actors(), a);
+    if (gs.player._sx === undefined) lerpOne(gs.player, a);   // player may also sit in a list (never today)
+    saveCam.x = cam.x; saveCam.y = cam.y;
+    var cx = prevCam.x + (cam.x - prevCam.x) * a, cy = prevCam.y + (cam.y - prevCam.y) * a;
+    if (Math.abs(cam.x - prevCam.x) + Math.abs(cam.y - prevCam.y) < 128) { cam.x = Math.round(cx); cam.y = Math.round(cy); }
+    interpOn = true;
+  }
+  function interpEnd(gs) {
+    if (!interpOn) return;
+    var npc = PE.npc;
+    restoreList(npc && npc.people); restoreList(npc && npc.vehicles); restoreList(PE.game.actors());
+    if (gs.player._sx !== undefined) { gs.player.x = gs.player._sx; gs.player.y = gs.player._sy; gs.player._sx = undefined; }
+    PE.cam.x = saveCam.x; PE.cam.y = saveCam.y;
+    interpOn = false;
   }
 
   // ---------------------------------------------------------------- render
@@ -251,6 +302,11 @@
     if (dtReal > 0.25) dtReal = 0.25;
     if (dtReal < 0) dtReal = 0;
     fpsT += dtReal; fpsN++;
+    // absorb rAF timestamp jitter (Firefox Android): within +-30% of the smoothed period, use the period
+    if (dtReal > 0) {
+      if (framePeriod > 0 && Math.abs(dtReal - framePeriod) < framePeriod * 0.3) { framePeriod += (dtReal - framePeriod) * 0.05; dtReal = framePeriod; }
+      else framePeriod = framePeriod > 0 ? framePeriod + (dtReal - framePeriod) * 0.25 : dtReal;   // refresh change / dropped frame
+    }
     if (fpsT >= 0.5) { fps = fpsN / fpsT; fpsT = 0; fpsN = 0; }
     try {
       var t0 = performance.now();
@@ -263,7 +319,9 @@
         if (PE.npc && PE.npc.update && dtReal > 0) PE.npc.update(Math.min(dtReal, 1 / 30), gs.player, PE.cam);
       }
       var t1 = performance.now();
-      render();
+      var lerp = (state === 'playing' || state === 'paused') && PE.game.state;
+      if (lerp) interpBegin(PE.game.state);
+      try { render(); } finally { if (lerp) interpEnd(PE.game.state); }
       var t2 = performance.now();
       updMs = updMs * 0.9 + (t1 - t0) * 0.1;
       renMs = renMs * 0.9 + (t2 - t1) * 0.1;

@@ -72,3 +72,10 @@ Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fix
 - Decision: deferred. The meters label can tuck 2-4 px under the pager or hint's translucent border, but it stays readable, so it isn't worth another build. If ui.js is touched again, slide by the label width too (eng-lead).
 - The mobile polish loop is closed. Next work starts from the client's real-device findings, briefed through the team.
 - **Sign-off: SHIP v1.1.3.** Dana.
+
+## v1.1.4: smooth rendering at any refresh rate (client's real-device finding)
+- Client phone check: sound OK, rotate overlay OK, stutter on a Pixel 6 Pro in Firefox. Not yet tried: thumb + second finger, Add to Home Screen.
+- eng-lead (main.js): the cause was a fixed 1/60 sim drawn without interpolation, which repeats frames at 120/90 Hz and on jittery 60 Hz. Render now interpolates player, NPCs, actors, vehicles and camera by acc/DT (camera rounded to whole pixels; jumps > 64 px drawn as-is; only while playing or paused); rAF jitter within +-30% snaps to the smoothed period. The sim still steps at exactly DT, so scoring is unchanged.
+- QA: repeated or still frames, before -> after: 120 Hz 136/273 -> 0; 90 Hz 67/203 -> 0; jittery 60 Hz 9/133 -> 0; a 60->120->90 Hz switch 90/263 -> 0; steady 60 Hz 0 -> 0. No streaking at spawn/flee/RESTART/pause/tab hide; 6x PERFECT at all rates; 138/138 (new render.test.js fails on v1.1.3); p99 16.9 ms, 0 console errors.
+- Open with the client: confirm on the Pixel; try thumb + second finger and Add to Home Screen. The meters-label tuck stays deferred.
+- **Sign-off: SHIP v1.1.4.** Dana.

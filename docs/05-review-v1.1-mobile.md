@@ -105,3 +105,8 @@ Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fix
 - Remaining photo-popup text spike (~10 ms at 4x): ship now and fix next as v1.2.1, before M1 resumes. Action item for Yoni: prebuild the popup label and grade sprites during the GAP and use the digit atlas for points. QA re-measures the photo frame.
 - Open: Pixel numbers from the client.
 - **Sign-off: SHIP v1.2.** Dana.
+
+## v1.2.1: photo-frame hitch (v1.2 action item closed)
+- Yoni (ui.js): popup labels prebuilt in quiet frames; on touch, points, timing line and score plate come from glyph atlases. Desktop unchanged, with a fallback for anything the atlas can't spell.
+- QA: shutter frame at 4x, touch 14.9-16.0 -> 7.1-8.1 ms (HUD 10.7 -> 2.2), desktop 14.6-16.6 -> 10.7-11.9 ms. Desktop frame hashes identical. On touch, only the score plate and popup differ, and the difference isn't visible at normal size. 146/146, 6x PERFECT on both, 0 console errors.
+- **Sign-off: SHIP v1.2.1.** Dana. M1 resumes.

@@ -146,13 +146,27 @@
       var player = cat.indexOf('player_') === 0, arr = L[cat] || [];
       for (j = 0; j < arr.length; j++) preQ.push([player ? 'player' : 'ambient', undefined, arr[j], player]);
     }
+    // v1.2.1: popup sprites first (cheap, needed at the first photo)
+    var head = [], G = (C().GRADES && C().GRADES.length) ? C().GRADES : [{ min: 1500, label: 'PERFECT SHOT' }, { min: 750, label: 'FRONT PAGE' }, { min: 400, label: 'JUICY' }, { min: 150, label: 'TABLOID FILLER' }, { min: 0, label: 'BLURRY GOSSIP' }];
+    for (i = 0; i < G.length; i++) head.push(['label', F22, G[i].label, gradeColor(G[i].min === -Infinity ? 0 : G[i].min)]);
+    head.push(['label', F22, 'WASTED FILM', RED], ['label', F22, 'TOO FAR', RED], ['label', F22, 'MISSED', '#B0B0B0'], ['label', F22, 'BLOWN COVER', RED],
+      ['label', F15, 'the story walked away', '#B0B0B0'], ['label', F15, 'they spotted you', RED],
+      ['label', FONT, 'get closer', '#FFFFFF'], ['label', FONT, 'no scandal here', '#FFFFFF']);
+    if (touchMenus()) {
+      var cols = [GOLD, '#FFFFFF', '#FFE08A', '#CFCFCF', '#9A9A9A', RED];
+      for (i = 0; i < cols.length; i++) head.push(['atlas', F15, null, cols[i]]);
+      head.push(['atlas', FONT, null, '#FFFFFF'], ['atlas', 'bold 20px Verdana, sans-serif', null, GOLD], ['atlas', 'bold 20px Verdana, sans-serif', null, RED]);
+    }
+    preQ = head.concat(preQ);
   }
   U.idleBuild = function () {
     if (!mctx) return false;
     if (!preQ) buildPreQueue();
     if (preI >= preQ.length) return false;
     var e = preQ[preI++];
-    if (e[2]) buildBubble(String(e[2]), e[0], e[1], e[3]);
+    if (e[0] === 'label') textSprite(e[2], e[1], e[3], '#000000');
+    else if (e[0] === 'atlas') buildAtlas(e[1], e[3]);
+    else if (e[2]) buildBubble(String(e[2]), e[0], e[1], e[3]);
     return true;
   };
   // Sprite cached on the bubble object itself: no per-frame key strings.
@@ -229,16 +243,69 @@
     return lt;
   }
   function blit(ctx, lt, x, y, dw, dh) {          // draw a live slot (or a plain sprite) at x, y
+    if (lt.glyph) { blitGlyphs(ctx, lt, x, y); return; }
     if (!lt.c) { if (dw) ctx.drawImage(lt, x, y, dw, dh); else ctx.drawImage(lt, x, y); return; }
     ctx.drawImage(lt.c, 0, 0, lt.width, lt.height, x, y, dw || lt.width, dh || lt.height);
   }
   var popA = liveSlot(320), popB = liveSlot(240), popC = liveSlot(260);
+  // v1.2.1 perf: the photo frame only blits. Fixed popup texts (grade / penalty labels, fixed second lines) are
+  // prebuilt textSprites (same pixels as liveText). Variable points / timing text: on touch devices from a glyph
+  // atlas (stroke pass, then fill pass); on desktop still liveText, so desktop stays pixel-identical.
+  var F22 = 'bold 22px Verdana, sans-serif', F15 = 'bold 15px Verdana, sans-serif';
+  function cachedSprite(text, font, color) { return spriteCache.get(font + '|' + color + '|#000000|' + text) || null; }
+  var gS = { glyph: true, atlas: null, toks: [], xs: [], n: 0, width: 0, height: 0 }, gB = { glyph: true, atlas: null, toks: [], xs: [], n: 0, width: 0, height: 0 }, gC = { glyph: true, atlas: null, toks: [], xs: [], n: 0, width: 0, height: 0 };
+  function popLine(fixedOrNull, lt, g, text, font, color) {
+    return fixedOrNull || (touchMenus() && glyphRun(g, text, font, color)) || liveText(lt, text, font, color);
+  }
   function makePopup(a, b, c, color, t0) {
     return {
-      a: liveText(popA, a, 'bold 22px Verdana, sans-serif', color),
-      b: liveText(popB, b, 'bold 15px Verdana, sans-serif', color),
-      c: c ? liveText(popC, c, FONT, '#FFFFFF') : null, t0: t0
+      a: cachedSprite(a, F22, color) || liveText(popA, a, F22, color),
+      b: popLine(cachedSprite(b, F15, color), popB, gB, b, F15, color),
+      c: c ? popLine(cachedSprite(c, FONT, '#FFFFFF'), popC, gC, c, FONT, '#FFFFFF') : null, t0: t0
     };
+  }
+
+  // Glyph atlas per (font, colour): row 0 = black outline (lineWidth 3), row 1 = fill; cells for single characters
+  // and a few whole words. Built during idle frames (touch only), never on the photo frame.
+  var ATLAS_TOKS = ['s early', 's late', 'dead on', 'angle x', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', ',', '+', '-', '\u20AA', ' '];
+  var atlases = {};
+  function buildAtlas(font, color) {
+    var key = font + '|' + color;
+    if (atlases[key]) return atlases[key];
+    var h = fontPx(font) + 8, cells = {}, x = 0, i;
+    mctx.font = font;
+    for (i = 0; i < ATLAS_TOKS.length; i++) {
+      var adv = mctx.measureText(ATLAS_TOKS[i]).width, w = Math.ceil(adv) + 6;
+      cells[ATLAS_TOKS[i]] = { x: x, w: w, adv: adv }; x += w + 2;
+    }
+    var c = newCanvas(x, h * 2), g = c.getContext('2d');
+    g.font = font; g.textBaseline = 'middle'; g.textAlign = 'left'; g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = '#000000'; g.fillStyle = color;
+    for (i = 0; i < ATLAS_TOKS.length; i++) {
+      var cl = cells[ATLAS_TOKS[i]];
+      g.strokeText(ATLAS_TOKS[i], cl.x + 3, h / 2);
+      g.fillText(ATLAS_TOKS[i], cl.x + 3, h + h / 2);
+    }
+    return (atlases[key] = { c: c, cells: cells, h: h });
+  }
+  // Lay out text as atlas tokens (longest words first); null if the atlas is not built yet or a char is missing.
+  function glyphRun(g, text, font, color) {
+    var A = atlases[font + '|' + color];
+    if (!A) return null;
+    var i = 0, n = 0, adv = 0;
+    while (i < text.length) {
+      var tok = null;
+      for (var k = 0; k < ATLAS_TOKS.length; k++) { var t = ATLAS_TOKS[k]; if (text.substr(i, t.length) === t) { tok = t; break; } }
+      if (!tok) return null;
+      g.toks[n] = tok; g.xs[n] = Math.round(adv); n++;
+      adv += A.cells[tok].adv; i += tok.length;
+    }
+    g.atlas = A; g.n = n; g.width = Math.ceil(adv + 6); g.height = A.h;
+    return g;
+  }
+  function blitGlyphs(ctx, g, x, y) {
+    var A = g.atlas, h = A.h, i, cl;
+    for (i = 0; i < g.n; i++) { cl = A.cells[g.toks[i]]; ctx.drawImage(A.c, cl.x, 0, cl.w, h, x + g.xs[i], y, cl.w, h); }
+    for (i = 0; i < g.n; i++) { cl = A.cells[g.toks[i]]; ctx.drawImage(A.c, cl.x, h, cl.w, h, x + g.xs[i], y, cl.w, h); }
   }
 
   function consumeEvents(gs) {
@@ -592,7 +659,10 @@
     consumeEvents(gs);
     var W = cam ? cam.w : 960, H = cam ? cam.h : 540, now = gs.time, spr;
     // score + case on plates
-    if (changed(memoScore, gs.score)) memoScore.s = liveText(ltScore, PE.logic.formatShekels(gs.score), 'bold 20px Verdana, sans-serif', gs.score < 0 ? RED : GOLD);
+    if (changed(memoScore, gs.score)) {               // v1.2.1: touch = glyph atlas (no text raster on the photo frame)
+      var stx = PE.logic.formatShekels(gs.score), scol = gs.score < 0 ? RED : GOLD;
+      memoScore.s = (touchMenus() && glyphRun(gS, stx, 'bold 20px Verdana, sans-serif', scol)) || liveText(ltScore, stx, 'bold 20px Verdana, sans-serif', scol);
+    }
     spr = memoScore.s;
     plate(ctx, spr, 10, 6, 0);
     var cn = Math.max(1, Math.min(gs.total, gs.caseNo));

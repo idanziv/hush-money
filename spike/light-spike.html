@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>HUSH MONEY - light spike</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  body { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #game {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(100vw, calc(100vh * 16 / 9)); height: min(100vh, calc(100vw * 9 / 16));
+    width: min(100vw, calc(100dvh * 16 / 9)); height: min(100dvh, calc(100vw * 9 / 16));
+    background: #000; image-rendering: crisp-edges; image-rendering: pixelated; outline: none; touch-action: none;
+  }
+  #rotate { display: none; position: fixed; inset: 0; z-index: 2; background: #0C0812; color: #FFD23F; font: bold 20px Verdana, sans-serif;
+    text-align: center; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }
+  @media (pointer: coarse) and (orientation: portrait) { #rotate { display: flex; } }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="540"></canvas>
+<div id="rotate">Turn your phone sideways (light spike)</div>
+<script>
+// Spike-only: ?soft=1 forces every 2D canvas (v1's too) onto the CPU rasteriser in Chromium, as a proxy for a software Canvas 2D (Firefox Android).
+(function () {
+  if (/[?&]soft=1/.test(location.search)) {
+    var og = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (t, o) {
+      if (t === '2d') o = Object.assign({}, o || {}, { willReadFrequently: true });
+      return og.call(this, t, o);
+    };
+  }
+})();
+</script>
+<script src="../js/data.js"></script>
+<script src="../js/logic.js"></script>
+<script src="../js/art.js"></script>
+<script src="../js/city.js"></script>
+<script src="../js/npc.js"></script>
+<script>
+/* HUSH MONEY - spike/light-spike.html (gfx-eng, Ilan Shapira). PERF SPIKE ONLY - not the shipped light.js.
+ * Params: ?lite=1 (quarter-res buffer 240x135, 3 cones, plain blobs, 1 bake sample) | ?debug=1 (overlay; tap toggles)
+ *         ?rep=4 (run the whole light pass 4x per frame to emulate a 4x slower CPU; extra passes use alpha 0.01)
+ *         ?soft=1 (CPU-rasterised canvases) | ?sync=1 (flush the canvas before/after the light pass so ms = real raster cost)
+ *         ?phase=0..1 (freeze dusk->night) | ?cars=6 | ?crowd=60 */
+(function (PE) {
+  'use strict';
+  var q = location.search;
+  function qp(n, d) { var m = new RegExp('[?&]' + n + '=([^&]*)').exec(q); return m ? decodeURIComponent(m[1]) : d; }
+  var LITE = qp('lite', '0') === '1', DEBUG = qp('debug', '0') === '1', SOFT = qp('soft', '0') === '1', SYNC = qp('sync', '0') === '1';
+  var REP = Math.max(1, parseInt(qp('rep', '1'), 10) || 1), FREEZE = qp('phase', null);
+  // ?comp= timing-only variants of the final blit: multiply (default) | multiply-ns (nearest) | over (source-over of an RGBA darkness layer; visuals wrong, cost representative) | over-ns
+  var COMP = qp('comp', 'multiply'), OVER = COMP.indexOf('over') === 0, TWO = COMP.indexOf('two') >= 0, NOSM = /-ns$/.test(COMP);
+  var NCARS = parseInt(qp('cars', LITE ? '3' : '6'), 10), NCROWD = parseInt(qp('crowd', '60'), 10);
+  var S = LITE ? 0.25 : 0.5, LW = Math.round(960 * S), LH = Math.round(540 * S);
+  var TS = 32, CPX = 512, CHL = CPX * S, NCX = 6, NCY = 4;
+  var canvas, ctx, lb, lctx;
+  var cam = { x: 700, y: 786, w: 960, h: 540 };
+  var i;
+
+  // ------------------------------------------------------------ stats
+  function Stat(cap) { this.b = new Float32Array(cap); this.s = new Float32Array(cap); this.cap = cap; this.n = 0; this.i = 0; }
+  Stat.prototype.add = function (v) { this.b[this.i] = v; this.i = (this.i + 1) % this.cap; if (this.n < this.cap) this.n++; };
+  Stat.prototype.reset = function () { this.n = 0; this.i = 0; };
+  Stat.prototype.pct = function (last, p) {
+    var n = Math.min(this.n, last); if (!n) return 0;
+    for (var k = 0; k < n; k++) this.s[k] = this.b[(this.i - 1 - k + this.cap * 2) % this.cap];
+    var v = this.s.subarray(0, n); v.sort();
+    return v[Math.min(n - 1, Math.floor(p * n))];
+  };
+  var stBuf = new Stat(4096), stComp = new Stat(4096), stFlush = new Stat(4096), stLight = new Stat(4096), stFrame = new Stat(4096), stCpu = new Stat(4096), stShadow = new Stat(4096);
+  var shown = null, shownAt = 0, fps = 0, fpsT = 0, fpsN = 0;
+
+  // ------------------------------------------------------------ light data (test set: 30 along the boulevard)
+  var lights = [];
+  function L(x, y, r, rgb, k, kind) { lights.push({ x: x, y: y, r: r, c: rgb, k: k, kind: kind }); }
+  var AMBER = [255, 176, 80], COOL = [205, 232, 255], PINK = [255, 60, 170], CYAN = [40, 220, 255];
+  for (i = 22; i <= 82; i += 6) L(i * TS + 16, 28 * TS + 18, 150, AMBER, 0.95, 'lamp');      // north sidewalk lamps (11)
+  for (i = 25; i <= 85; i += 6) L(i * TS + 16, 37 * TS + 10, 150, AMBER, 0.95, 'lamp');      // south sidewalk lamps (11)
+  L(22 * TS + 56, 33 * TS, 125, COOL, 0.95, 'kiosk');                                         // west kiosk, east of it
+  L(84 * TS - 10, 33 * TS, 125, COOL, 0.95, 'kiosk');                                         // east kiosk, west of it
+  L(30 * TS, 28 * TS + 10, 95, PINK, 0.9, 'neon'); L(46 * TS, 28 * TS + 10, 100, CYAN, 0.9, 'neon');
+  L(58 * TS, 37 * TS + 8, 95, PINK, 0.9, 'neon'); L(70 * TS, 28 * TS + 10, 100, PINK, 0.9, 'neon');
+  L(40 * TS, 37 * TS + 8, 100, CYAN, 0.9, 'neon'); L(76 * TS, 37 * TS + 8, 95, CYAN, 0.9, 'neon');
+
+  var occ = [];            // px rects [x0,y0,x1,y1]
+  var chLamp = new Array(NCX * NCY), chFixed = new Array(NCX * NCY);
+  var bake = { ms: 0, chunks: 0, bytes: 0, lights: 0, occ: 0, samples: 0 };
+
+  function mkc(w, h, o) { var c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+  function addShadow(t, o, lx, ly, far) {
+    t.rect(o[0], o[1], o[2] - o[0], o[3] - o[1]);
+    var px = [o[0], o[2], o[2], o[0]], py = [o[1], o[1], o[3], o[3]];
+    for (var a = 0; a < 4; a++) {
+      var b = (a + 1) & 3, ax = px[a], ay = py[a], bx = px[b], by = py[b];
+      var da = Math.sqrt((ax - lx) * (ax - lx) + (ay - ly) * (ay - ly)) || 1, db = Math.sqrt((bx - lx) * (bx - lx) + (by - ly) * (by - ly)) || 1;
+      var ex = ax + (ax - lx) / da * far, ey = ay + (ay - ly) / da * far, fx = bx + (bx - lx) / db * far, fy = by + (by - ly) / db * far;
+      // quad a,b,f,e ; keep winding positive so the nonzero union never cancels
+      var area = (ax * by - bx * ay) + (bx * fy - fx * by) + (fx * ey - ex * fy) + (ex * ay - ax * ey);
+      t.moveTo(ax, ay);
+      if (area >= 0) { t.lineTo(bx, by); t.lineTo(fx, fy); t.lineTo(ex, ey); } else { t.lineTo(ex, ey); t.lineTo(fx, fy); t.lineTo(bx, by); }
+      t.closePath();
+    }
+  }
+
+  function doBake() {
+    var t0 = performance.now(), city = PE.city, T = city.T, g = city.grid, x, y;
+    for (i = 0; i < city.buildings.length; i++) { var b = city.buildings[i]; occ.push([b.x * TS, b.y * TS, (b.x + b.w) * TS, (b.y + b.h) * TS]); }
+    for (y = 0; y < g.h; y++) for (x = 0; x < g.w; x++) if (g.tile[y * g.w + x] === T.KIOSK) occ.push([x * TS, y * TS, (x + 1) * TS, (y + 1) * TS]);
+    var rmax = 0; for (i = 0; i < lights.length; i++) rmax = Math.max(rmax, lights[i].r);
+    var tsz = Math.ceil(2 * rmax * S) + 2, c = tsz / 2, tmp = mkc(tsz, tsz), t = tmp.getContext('2d');
+    var ns = LITE ? 1 : 3, near = [];
+    for (i = 0; i < lights.length; i++) {
+      var l = lights[i], layer = l.kind === 'lamp' ? chLamp : chFixed;
+      near.length = 0;
+      for (var k = 0; k < occ.length; k++) {
+        var o = occ[k];
+        if (o[2] > l.x - l.r && o[0] < l.x + l.r && o[3] > l.y - l.r && o[1] < l.y + l.r && !(l.x > o[0] && l.x < o[2] && l.y > o[1] && l.y < o[3])) near.push(o);
+      }
+      for (var s = 0; s < ns; s++) {
+        var an = s * Math.PI * 2 / ns, lx = l.x + (ns > 1 ? Math.cos(an) * 5 : 0), ly = l.y + (ns > 1 ? Math.sin(an) * 5 : 0);
+        t.setTransform(1, 0, 0, 1, 0, 0); t.globalCompositeOperation = 'source-over'; t.globalAlpha = 1; t.clearRect(0, 0, tsz, tsz);
+        var gr = t.createRadialGradient(c, c, 0, c, c, l.r * S), col = l.c[0] + ',' + l.c[1] + ',' + l.c[2];
+        gr.addColorStop(0, 'rgba(' + col + ',' + l.k + ')'); gr.addColorStop(0.25, 'rgba(' + col + ',' + (l.k * 0.7) + ')');
+        gr.addColorStop(0.5, 'rgba(' + col + ',' + (l.k * 0.38) + ')'); gr.addColorStop(0.75, 'rgba(' + col + ',' + (l.k * 0.14) + ')');
+        gr.addColorStop(1, 'rgba(' + col + ',0)');
+        t.fillStyle = gr; t.fillRect(0, 0, tsz, tsz);
+        t.setTransform(S, 0, 0, S, c - lx * S, c - ly * S);
+        t.globalCompositeOperation = 'destination-out'; t.fillStyle = '#000';
+        t.beginPath(); for (var m = 0; m < near.length; m++) addShadow(t, near[m], lx, ly, l.r * 2); t.fill();
+        var gx0 = lx * S - c, gy0 = ly * S - c;
+        for (var cy = Math.max(0, Math.floor(gy0 / CHL)); cy <= Math.min(NCY - 1, Math.floor((gy0 + tsz) / CHL)); cy++) {
+          for (var cx = Math.max(0, Math.floor(gx0 / CHL)); cx <= Math.min(NCX - 1, Math.floor((gx0 + tsz) / CHL)); cx++) {
+            var idx = cy * NCX + cx;
+            if (!layer[idx]) { layer[idx] = mkc(CHL, CHL); bake.chunks++; bake.bytes += CHL * CHL * 4; }
+            var cc = layer[idx].getContext('2d');
+            cc.globalCompositeOperation = 'lighter'; cc.globalAlpha = 1 / ns;
+            cc.drawImage(tmp, Math.round(gx0 - cx * CHL), Math.round(gy0 - cy * CHL));
+          }
+        }
+      }
+    }
+    for (i = 0; i < NCX * NCY; i++) { if (chLamp[i]) chLamp[i].getContext('2d').getImageData(0, 0, 1, 1); if (chFixed[i]) chFixed[i].getContext('2d').getImageData(0, 0, 1, 1); }   // force the GPU queue to finish so bake ms is real
+    bake.ms = performance.now() - t0; bake.lights = lights.length; bake.occ = occ.length; bake.samples = ns;
+  }
+
+  // ------------------------------------------------------------ sprites (built once)
+  var coneSpr, glowSpr, blobSpr, CONE_LEN = 150;
+  function buildSprites() {
+    var h = Math.ceil(2 * CONE_LEN * Math.sin(35 * Math.PI / 180) * S) + 2, w = Math.ceil(CONE_LEN * S) + 2, t;
+    coneSpr = mkc(w, h); t = coneSpr.getContext('2d');
+    var gr = t.createRadialGradient(0, h / 2, 0, 0, h / 2, CONE_LEN * S);
+    gr.addColorStop(0, 'rgba(255,244,210,0.85)'); gr.addColorStop(0.5, 'rgba(255,236,190,0.4)'); gr.addColorStop(1, 'rgba(255,230,170,0)');
+    t.fillStyle = gr; t.beginPath(); t.moveTo(0, h / 2);
+    t.arc(0, h / 2, CONE_LEN * S, -35 * Math.PI / 180, 35 * Math.PI / 180); t.closePath(); t.fill();
+    var gs = Math.ceil(2 * 34 * S) + 2; glowSpr = mkc(gs, gs); t = glowSpr.getContext('2d');
+    gr = t.createRadialGradient(gs / 2, gs / 2, 0, gs / 2, gs / 2, 34 * S);
+    gr.addColorStop(0, 'rgba(255,240,200,0.7)'); gr.addColorStop(1, 'rgba(255,240,200,0)'); t.fillStyle = gr; t.fillRect(0, 0, gs, gs);
+    blobSpr = mkc(32, 16); t = blobSpr.getContext('2d');
+    gr = t.createRadialGradient(16, 8, 0, 16, 8, 16); gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(0.6, 'rgba(0,0,0,0.3)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    t.setTransform(1, 0, 0, 0.5, 0, 0); t.fillStyle = gr; t.fillRect(0, 0, 32, 32);
+  }
+
+  // ------------------------------------------------------------ environment: dusk -> night, colour + lamp level only
+  var KEYS = [[0, [232, 154, 106], 1.0], [0.5, [122, 90, 158], 0.6], [1, [42, 44, 88], 0.35]];
+  function norm(c) { var m = Math.max(c[0], c[1], c[2]); return [c[0] / m, c[1] / m, c[2] / m]; }
+  var KN = KEYS.map(function (k) { return norm(k[1]); });
+  var env = { p: 0, ambient: 1, lamp: 0, rgb: 'rgb(255,255,255)' }, lastAmbKey = -1;
+  function sm(a, b, x) { x = (x - a) / (b - a); x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+  function updateEnv(clock) {
+    var p;
+    if (FREEZE !== null) p = Math.max(0, Math.min(1, parseFloat(FREEZE) || 0));
+    else { var u = clock % 70; p = u < 60 ? u / 60 : u < 64 ? 1 : 1 - sm(0, 6, u - 64); }
+    var a = p < 0.5 ? 0 : 1, b = a + 1, f = (p - KEYS[a][0]) / (KEYS[b][0] - KEYS[a][0]);
+    var br = KEYS[a][2] + (KEYS[b][2] - KEYS[a][2]) * f, r = (KN[a][0] + (KN[b][0] - KN[a][0]) * f) * br, g = (KN[a][1] + (KN[b][1] - KN[a][1]) * f) * br, bl = (KN[a][2] + (KN[b][2] - KN[a][2]) * f) * br;
+    env.p = p; env.ambient = br; env.lamp = sm(0.2, 0.65, p);
+    var R = Math.round(r * 255), G = Math.round(g * 255), B = Math.round(bl * 255), key = (R << 16) | (G << 8) | B;
+    if (key !== lastAmbKey) { lastAmbKey = key; env.rgb = 'rgb(' + R + ',' + G + ',' + B + ')'; }
+  }
+
+  // ------------------------------------------------------------ world actors: crowd + headlight cars
+  var rng = PE.logic.mulberry32(777), crowd = [], cars = [], vis = [];
+  var CAR_COLORS = ['#C0392B', '#E8E4D8', '#2E6FBF', '#E0A52E', '#3A3A44', '#6A8E3A'];
+  function initActors() {
+    var bands = [[905, 925], [1000, 1105], [1188, 1212]], j;
+    for (j = 0; j < NCROWD; j++) {
+      var bd = bands[Math.floor(rng() * 3)], sp = 20 + rng() * 28, east = rng() < 0.5;
+      crowd.push({ x: cam.x - 100 + rng() * 1160, y: bd[0] + rng() * (bd[1] - bd[0]), vx: east ? sp : -sp, look: 'amb' + Math.floor(rng() * 24), dir: east ? 2 : 6, animT: rng() * 5, moving: true, prop: 'none' });
+    }
+    for (j = 0; j < NCARS; j++) {
+      var east2 = j % 2 === 0, lane = Math.floor(j / 2) % 2;
+      cars.push({ x: 620 + rng() * 2100, y: east2 ? (lane ? 1168 : 1136) : (lane ? 976 : 944), v: (east2 ? 1 : -1) * (85 + rng() * 55), dir: east2 ? 2 : 6, color: CAR_COLORS[j % 6] });
+    }
+  }
+  var PANMIN = 500, PANMAX = 1900;
+  function updateActors(dt) {
+    var j, lo = cam.x - 100, hi = cam.x + 1060;
+    for (j = 0; j < crowd.length; j++) {
+      var p = crowd[j]; p.x += p.vx * dt; p.animT += dt * 1.2;
+      if (p.x < lo) p.x += 1160; else if (p.x > hi) p.x -= 1160;
+    }
+    for (j = 0; j < cars.length; j++) {
+      var c = cars[j]; c.x += c.v * dt;
+      if (c.x > 2860) c.x = 540; else if (c.x < 540) c.x = 2860;
+    }
+  }
+  function updateCam(clock) {
+    var range = PANMAX - PANMIN, u = (clock * 55) % (2 * range), t = (u < range ? u : 2 * range - u) / range;
+    cam.x = Math.round(PANMIN + range * (t * t * (3 - 2 * t))); cam.y = 786;
+  }
+
+  // ------------------------------------------------------------ light pass pieces
+  var tB = 0, nShadows = 0, nChunks = 0, nCones = 0, FAKE_PLAYER = { x: 0, y: 0 };
+  function drawShadows(am) {
+    ctx.globalAlpha = am; var lamp = env.lamp, j, k;
+    for (j = 0; j < vis.length; j++) {
+      var p = vis[j], sx = Math.round(p.x - cam.x), sy = Math.round(p.y - cam.y), best = 0, bl = null;
+      if (!LITE && lamp > 0.02) {
+        for (k = 0; k < lights.length; k++) {
+          var l = lights[k], dx = p.x - l.x, dy = p.y - l.y, d2 = dx * dx + dy * dy, r2 = l.r * l.r;
+          if (d2 < r2) { var s = 1 - d2 / r2; if (s > best) { best = s; bl = l; } }
+        }
+      }
+      if (bl) {
+        var ang = Math.atan2(p.y - bl.y, p.x - bl.x), co = Math.cos(ang), si = Math.sin(ang), w = 22 + 30 * best * lamp;
+        ctx.setTransform(co, si, -si, co, sx, sy); ctx.drawImage(blobSpr, -w * 0.3, -5, w, 10);
+      } else { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(blobSpr, sx - 11, sy - 4, 22, 9); }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; nShadows = vis.length;
+  }
+  function drawLight(am, clock) {
+    var j, cx, cy;
+    lctx.globalCompositeOperation = 'source-over'; lctx.globalAlpha = 1; lctx.setTransform(1, 0, 0, 1, 0, 0);
+    lctx.fillStyle = OVER ? 'rgba(20,24,64,0.75)' : env.rgb; lctx.globalCompositeOperation = 'copy'; lctx.fillRect(0, 0, LW, LH); lctx.globalCompositeOperation = 'lighter';
+    lctx.globalCompositeOperation = 'lighter';
+    var gx = Math.round(cam.x * S), gy = Math.round(cam.y * S), flick = 0.9 + 0.1 * Math.sin(clock * 9.1) * Math.sin(clock * 2.3);
+    var cx0 = Math.floor(cam.x / CPX), cx1 = Math.min(NCX - 1, Math.floor((cam.x + 959) / CPX)), cy0 = Math.floor(cam.y / CPX), cy1 = Math.min(NCY - 1, Math.floor((cam.y + 539) / CPX));
+    nChunks = 0;
+    for (cy = cy0; cy <= cy1; cy++) for (cx = cx0; cx <= cx1; cx++) {
+      var idx = cy * NCX + cx, a = chLamp[idx], f = chFixed[idx];
+      if (a && env.lamp > 0.01) { lctx.globalAlpha = env.lamp; lctx.drawImage(a, cx * CHL - gx, cy * CHL - gy); nChunks++; }
+      if (f) { lctx.globalAlpha = flick; lctx.drawImage(f, cx * CHL - gx, cy * CHL - gy); nChunks++; }
+    }
+    lctx.globalAlpha = 1; nCones = 0;
+    for (j = 0; j < cars.length; j++) {
+      var c = cars[j]; if (c.x < cam.x - 200 || c.x > cam.x + 1160) continue;
+      var dirx = c.v > 0 ? 1 : -1, hx = (c.x + dirx * 14 - cam.x) * S, hy = (c.y - cam.y) * S;
+      lctx.setTransform(dirx, 0, 0, 1, hx, hy); lctx.drawImage(coneSpr, 0, -coneSpr.height / 2);
+      lctx.setTransform(1, 0, 0, 1, hx - glowSpr.width / 2, hy - glowSpr.height / 2); lctx.drawImage(glowSpr, 0, 0);
+      nCones++;
+    }
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (SYNC && REP === 1) { lctx.getImageData(0, 0, 1, 1); tB = performance.now(); }
+    ctx.globalCompositeOperation = OVER ? 'source-over' : 'multiply'; ctx.imageSmoothingEnabled = !NOSM; ctx.globalAlpha = am;
+    ctx.drawImage(lb, 0, 0, 960, 540);
+    if (TWO) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.5 * am; ctx.drawImage(lb, 0, 0, 960, 540); }   // timing proxy for a coloured glow blit
+    ctx.globalCompositeOperation = 'source-over'; ctx.imageSmoothingEnabled = false; ctx.globalAlpha = 1;
+  }
+  function flush() { ctx.getImageData(0, 0, 1, 1); }
+  function byY(a, b) { return a.y - b.y; }
+  function pushVis(list) {
+    var x0 = cam.x - 64, y0 = cam.y - 64, x1 = cam.x + 1024, y1 = cam.y + 604;
+    for (var j = 0; j < list.length; j++) { var p = list[j]; if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1) vis.push(p); }
+  }
+
+  // ------------------------------------------------------------ frame
+  var last = 0, clock = 0, prevNow = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    var tf0 = performance.now(), dt = last ? (now - last) / 1000 : 0; last = now;
+    if (dt > 0.25) dt = 0.25; if (dt < 0) dt = 0;
+    if (prevNow && dt > 0 && dt < 0.25) stFrame.add(now - prevNow);
+    prevNow = now; clock += dt; fpsT += dt; fpsN++; if (fpsT >= 0.5) { fps = fpsN / fpsT; fpsT = 0; fpsN = 0; }
+    updateCam(clock); updateEnv(clock); updateActors(dt);
+    FAKE_PLAYER.x = cam.x + 480; FAKE_PLAYER.y = cam.y + 270;
+    if (dt > 0) PE.npc.update(Math.min(dt, 1 / 30), FAKE_PLAYER, cam);
+    var art = PE.art, city = PE.city, npc = PE.npc, j;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 960, 540);
+    city.drawGround(ctx, cam);
+    vis.length = 0; pushVis(npc.people); pushVis(crowd); vis.sort(byY);
+    var tl0, tl1, tl2, lightMs = 0, shMs = 0;
+    if (SYNC) flush();
+    tl0 = performance.now();
+    for (j = 0; j < REP; j++) drawShadows(j === 0 ? 1 : 0.01);
+    if (SYNC) flush();
+    tl1 = performance.now(); shMs = tl1 - tl0;
+    var vs = npc.vehicles;
+    for (j = 0; j < vs.length; j++) { var v = vs[j], vx = Math.round(v.x - cam.x), vy = Math.round(v.y - cam.y); if (vx > -64 && vy > -64 && vx < 1024 && vy < 604) art.drawVehicle(ctx, vx, vy, v.type, v.dir, v.color); }
+    for (j = 0; j < cars.length; j++) { var c = cars[j], cx = Math.round(c.x - cam.x), cy = Math.round(c.y - cam.y); if (cx > -64 && cx < 1024) art.drawVehicle(ctx, cx, cy, 'car', c.dir, c.color); }
+    for (j = 0; j < vis.length; j++) { var p = vis[j]; art.drawCharacter(ctx, Math.round(p.x - cam.x), Math.round(p.y - cam.y), p.look, p.dir, p.animT, p.moving, p.prop); }
+    npc.drawExtras(ctx, cam);
+    city.drawTop(ctx, cam, clock);
+    if (SYNC) flush();
+    tl2 = performance.now();
+    for (j = 0; j < REP; j++) drawLight(j === 0 ? 1 : 0.01, clock);
+    if (SYNC) flush();
+    var tl3 = performance.now();
+    lightMs = shMs + (tl3 - tl2);
+    if (SYNC && REP === 1) { stBuf.add(tB - tl2); stComp.add(tl3 - tB); flush(); stFlush.add(performance.now() - tl3); }
+    stLight.add(lightMs); stShadow.add(shMs);
+    drawHud(now);
+    stCpu.add(performance.now() - tf0);
+  }
+
+  function drawHud(now) {
+    ctx.font = 'bold 11px Verdana, sans-serif'; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+    var tag = 'HUSH MONEY light spike  ' + (LITE ? 'LITE' : 'FULL') + (SOFT ? ' soft' : '') + (REP > 1 ? ' x' + REP : '') + '  ' + Math.round(fps) + ' fps' + (DEBUG ? '' : '  (tap: stats)');
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(4, 520, ctx.measureText(tag).width + 10, 16); ctx.fillStyle = '#fff'; ctx.fillText(tag, 9, 523);
+    if (!DEBUG) return;
+    if (now - shownAt > 500) {
+      shownAt = now;
+      shown = [
+        'FPS ' + fps.toFixed(0) + '   ' + (LITE ? 'LITE' : 'FULL') + ' buf ' + LW + 'x' + LH + '  soft=' + (SOFT ? 1 : 0) + ' rep=' + REP + ' sync=' + (SYNC ? 1 : 0),
+        'light ms  p50 ' + stLight.pct(600, 0.5).toFixed(2) + '  p99 ' + stLight.pct(600, 0.99).toFixed(2) + '   (shadows p50 ' + stShadow.pct(600, 0.5).toFixed(2) + ')',
+        (REP > 1 ? 'per pass  p50 ' + (stLight.pct(600, 0.5) / REP).toFixed(2) + '  p99 ' + (stLight.pct(600, 0.99) / REP).toFixed(2) + '   [x' + REP + ' emulated]' : 'frame cpu ms p50 ' + stCpu.pct(600, 0.5).toFixed(2) + '  p99 ' + stCpu.pct(600, 0.99).toFixed(2)),
+        'frame ms  p50 ' + stFrame.pct(600, 0.5).toFixed(2) + '  p99 ' + stFrame.pct(600, 0.99).toFixed(2) + '   cpu p99 ' + stCpu.pct(600, 0.99).toFixed(2),
+        'shadows ' + nShadows + '  cones ' + nCones + '  chunks drawn ' + nChunks + '  lights ' + bake.lights + '  occluders ' + bake.occ,
+        'bake ' + bake.ms.toFixed(0) + ' ms  chunks ' + bake.chunks + '  ' + (bake.bytes / 1048576).toFixed(2) + ' MB (+buf ' + (LW * LH * 4 / 1024).toFixed(0) + ' KB)',
+        'phase ' + env.p.toFixed(2) + '  ambient ' + env.ambient.toFixed(2) + '  lamps ' + env.lamp.toFixed(2) + '  cam ' + cam.x
+      ];
+    }
+    if (!shown) return;
+    ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(4, 4, 520, shown.length * 14 + 6); ctx.fillStyle = '#fff';
+    for (var j = 0; j < shown.length; j++) ctx.fillText(shown[j], 8, 7 + j * 14);
+  }
+
+  // ------------------------------------------------------------ boot
+  function boot() {
+    canvas = document.getElementById('game'); ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = false;
+    lb = mkc(LW, LH); lctx = lb.getContext('2d', { alpha: OVER });
+    PE.art.init(); PE.city.init(); PE.city.initGraphics(); PE.npc.init(PE.logic.mulberry32(12345));
+    buildSprites(); doBake(); initActors();
+    canvas.addEventListener('pointerdown', function () { DEBUG = !DEBUG; shown = null; shownAt = 0; });
+    window.addEventListener('keydown', function (e) { if (e.code === 'Backquote') { DEBUG = !DEBUG; shown = null; shownAt = 0; } });
+    document.addEventListener('visibilitychange', function () { last = 0; prevNow = 0; });
+    function st(s) { return { p50: +s.pct(4096, 0.5).toFixed(3), p99: +s.pct(4096, 0.99).toFixed(3), max: +s.pct(4096, 1).toFixed(3), n: s.n }; }
+    window.__spike = {
+      reset: function () { stLight.reset(); stBuf.reset(); stComp.reset(); stFlush.reset(); stFrame.reset(); stCpu.reset(); stShadow.reset(); },
+      stats: function () { return { tier: LITE ? 'lite' : 'full', soft: SOFT, rep: REP, sync: SYNC, light: st(stLight), buf: st(stBuf), comp: st(stComp), flushOverhead: st(stFlush), shadows: st(stShadow), frame: st(stFrame), cpu: st(stCpu), fps: Math.round(fps), nShadows: nShadows, nCones: nCones, nChunks: nChunks, phase: env.p }; },
+      bake: bake, buf: [LW, LH], heapMB: performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null,
+      cityGfxMs: PE.city.gfxMs, artInitMs: PE.art.initMs
+    };
+    requestAnimationFrame(frame);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})(globalThis.PE);
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@
   var CAM_BOX_W = 74, CAM_BOX_H = 76;         // camera-icon box, bottom-right
   var CAM_BOX_W_TOUCH = 100;                  // touch: wider 16 px IN RANGE / NEAR label
   var CAM_LABEL_TOUCH = 'bold 16px Verdana, sans-serif';
+  var SNAP_R = 58;                            // touch SNAP button radius 54 + 4 px margin
 
   var mctx = null;                 // measuring context
   var bubbleCache = new Map();     // key -> canvas (cap 200)
@@ -285,6 +286,8 @@
       drawSpr(ctx, q.bubble, spr, place.x, place.y);
     }
     if (hudBottom > 0) addRect(hudL, 0, hudW, hudBottom + 2);
+    // v1.1.3 touch: SNAP button (touch.js SHUT_X/Y/R = W-112, H-142, 54) is a no-go box for ambient bubbles
+    if (touchMenus()) addRect(cam.w - 112 - SNAP_R, cam.h - 142 - SNAP_R, SNAP_R * 2, SNAP_R * 2);
     // 2. the player's quip
     if (p && p.bubble && p.bubble.text) placeNudged(ctx, p, cam, true);
     // 3. ambient + vehicle bubbles, nearest first, capped
@@ -512,12 +515,11 @@
     var sc = gs.scandal;
     var pt = now - st.pagerT0;
     topBox.b = 0;
-    if (touchMenus()) {
-      var tw = 0;
-      if (pt >= 0 && pt < 5 && st.pagerText) { tw = getPager().width; topBox.b = 4 + getPager().height; }
-      if (gs.caseNo === 1 && sc && sc.status === 'live') { tw = Math.max(tw, hintSprite().width); topBox.b = hintY(gs) + hintSprite().height; }
-      topBox.l = Math.round((W - tw) / 2); topBox.r = topBox.l + tw;
-    }
+    // pager / case-1 hint box (top center): the edge arrow slides past it (touch v1.1.2, desktop v1.1.3)
+    var tw = 0;
+    if (pt >= 0 && pt < 5 && st.pagerText) { tw = getPager().width; topBox.b = 4 + getPager().height; }
+    if (gs.caseNo === 1 && sc && sc.status === 'live') { tw = Math.max(tw, hintSprite().width); topBox.b = hintY(gs) + hintSprite().height; }
+    topBox.l = Math.round((W - tw) / 2); topBox.r = topBox.l + tw;
     if (sc && sc.status === 'live') drawEdgeArrow(ctx, cam || { x: 0, y: 0, w: W, h: H }, sc);
     // pager (5 s on spawn, blinks for the first 0.6 s)
     if (pt >= 0 && pt < 5 && st.pagerText) {

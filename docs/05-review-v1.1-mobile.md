@@ -63,3 +63,12 @@ Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fix
   - eng-lead: apply the slide-past-pager rule on desktop too. Same change: add the SNAP button to the touch bubble no-go zones (cosmetic on its own, but it's the same mechanism, so it costs nothing extra).
   - Due v1.1.3; QA re-checks both modes.
 - **Sign-off: SHIP v1.1.2.** Dana.
+
+## v1.1.3: arrow vs pager, bubbles vs SNAP (action item closed)
+- eng-lead (ui.js):
+  - Desktop: a top-edge arrow under the pager or case-1 hint slides to the box edge +-18 px for the pager's 5 s (box x 256-704). Scripted check: 0 of 62 positions hidden.
+  - Touch: SNAP is a no-go zone for ambient and vehicle bubbles (nudge up once, else skip). Check: 0 of 63 covering it.
+- QA: SHIP. Seeds 10/17 (desktop) and 14 (touch): the arrow stays clear of the boxes. 9,565 touch-run bubble draws, none on SNAP; every SNAP tap fired. Polaroids have no HUD. 135/135, 0 console errors.
+- Decision: deferred. The meters label can tuck 2-4 px under the pager or hint's translucent border, but it stays readable, so it isn't worth another build. If ui.js is touched again, slide by the label width too (eng-lead).
+- The mobile polish loop is closed. Next work starts from the client's real-device findings, briefed through the team.
+- **Sign-off: SHIP v1.1.3.** Dana.

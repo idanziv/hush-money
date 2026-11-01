@@ -79,3 +79,11 @@ Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fix
 - QA: repeated or still frames, before -> after: 120 Hz 136/273 -> 0; 90 Hz 67/203 -> 0; jittery 60 Hz 9/133 -> 0; a 60->120->90 Hz switch 90/263 -> 0; steady 60 Hz 0 -> 0. No streaking at spawn/flee/RESTART/pause/tab hide; 6x PERFECT at all rates; 138/138 (new render.test.js fails on v1.1.3); p99 16.9 ms, 0 console errors.
 - Open with the client: confirm on the Pixel; try thumb + second finger and Add to Home Screen. The meters-label tuck stays deferred.
 - **Sign-off: SHIP v1.1.4.** Dana.
+
+## v1.1.5: smooth lean-in (client: actors stutter as they close in near the peak)
+- eng-lead (game.js only): the lean-in was an exponential ease-out that crept 1 px at a time with growing gaps (up to 10 frames at 60 Hz, 20 at 120 Hz) while legs churned in place. It's now a fixed-duration ease (half linear, half smoothstep) over 0.6x ACTION_LEAD, and the walk cycle runs only while travelling. RISE, pop, flare, scoring and DT are unchanged.
+- QA: 139/139 (new per-step test fails on v1.1.4). All 7 types at 60/90/120 Hz and jittery 60 Hz move evenly; longest gap 11 -> 4-6 frames (60 Hz), 21 -> 8-11 (120 Hz). Actors stop at t 10.55-10.62 with 0 px snap at the pop; busted-in-lean-in unchanged; 6x PERFECT; p99 16.8 ms, 0 console errors.
+- Design call: approved. Arrive about 0.4 s early, hold still, then pop. A beat of stillness reads as "get ready" and helps anticipation; it stays inside the spec 4 window. Spec 4 updated.
+- Abrupt arrival (the ease ends at half speed): fix next. The client is watching exactly this motion. Action item v1.1.6 (eng-lead): end the ease at zero velocity, keep the same ~10.6 arrival; QA re-runs the per-step test. Not a blocker for v1.1.5.
+- Open with the client: Pixel re-check, thumb + second finger, Add to Home Screen.
+- **Sign-off: SHIP v1.1.5.** Dana.

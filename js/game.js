@@ -11,6 +11,7 @@
   var actorList = [];      // reused output of actors()
   var defaultCam = { x: 0, y: 0, w: 960, h: 540 };
   var mv = { x: 0, y: 0 };  // reused moveAndCollide output
+  var LEAN_FRACTION = 0.6;   // lean-in travels over the first 60% of ACTION_LEAD, then holds for the RISE pop
   var input0 = { up: false, down: false, left: false, right: false, sprint: false, photo: false };
 
   function C() { return PE.CFG || {}; }
@@ -306,16 +307,26 @@
       sc.peaked = true; sc.flareT = 0; pop = true;
       s.events.push({ type: 'peak' });
     }
-    var k = Math.min(1, dt * 6);
+    // v1.1.5 lean-in: fixed-duration ease from the lean-in start position (was an exponential ease-out whose
+    // sub-pixel tail crept 1 px every 5-20 frames with the walk cycle running, right before the peak).
+    // Arrives at RISE - (1 - LEAN_FRACTION) * ACTION_LEAD and holds still for the pop.
+    var L0 = RISE - N(cfg.ACTION_LEAD, 1), LD = N(cfg.ACTION_LEAD, 1) * LEAN_FRACTION;
+    var u = LD > 0 ? Math.max(0, Math.min(1, (sc.t - L0) / LD)) : 1;
+    var e = 0.5 * u + 0.5 * u * u * (3 - 2 * u);      // half linear + half smoothstep: soft ends, no long tail
     for (var i = 0; i < sc.actors.length; i++) {
-      var a = sc.actors[i], ro = roles[i] || {};
+      var a = sc.actors[i], ro = roles[i] || {}, b = a.brain;
       a.glow = sc.intensity;
       a.moving = false;
       if (leanIn && (typeof ro.pdx === 'number' || typeof ro.pdy === 'number')) {
+        if (b.lx0 === undefined) { b.lx0 = a.x; b.ly0 = a.y; }
         var tx = sc.spot.x + N(ro.pdx, N(ro.dx, 0)), ty = sc.spot.y + N(ro.pdy, N(ro.dy, 0));
-        var mx = (tx - a.x) * k, my = (ty - a.y) * k;
-        a.x += mx; a.y += my;
-        if (Math.abs(mx) + Math.abs(my) > 0.05) { a.moving = true; a.animT += dt; }
+        var nx = b.lx0 + (tx - b.lx0) * e, ny = b.ly0 + (ty - b.ly0) * e;
+        var step = Math.sqrt((nx - a.x) * (nx - a.x) + (ny - a.y) * (ny - a.y));
+        a.x = nx; a.y = ny;
+        if (u < 1 && step > 0) {                           // walk cycle only while travelling, legs at ground speed
+          a.moving = true;
+          a.animT += step / N(cfg.NPC_SPEED, 55);
+        }
       }
       if (pop && ro.peakProp) a.prop = ro.peakProp;
       a.action = hold ? act : null;

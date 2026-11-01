@@ -74,7 +74,7 @@ module.exports = (t, PE) => {
   const INV = {
     runs: 0, steps: 0,
     oneLive: [], spawnPath: [], solid: [], bubbles: [], bubbleText: [], deckSpot: [], scState: [],
-    lines: [], resolution: [], timing: [], spawnPaths: [], peak: [], action: [], oneBubble: [], dogs: [], waits: [], dupLine: [],
+    lines: [], resolution: [], timing: [], spawnPaths: [], peak: [], action: [], oneBubble: [], dogs: [], waits: [], dupLine: [], lean: [],
   };
   const push = (arr, msg) => { if (arr.length < 40) arr.push(msg); };
 
@@ -265,6 +265,22 @@ module.exports = (t, PE) => {
 
       if (isLive(sc2)) {
         lastLiveActors = sc2.actors.slice();
+        // v1.1.5 lean-in: smooth bounded travel, arrives >= 0.35 s before the pop, then stands still with legs off
+        if (sc2.t >= C.RISE - C.ACTION_LEAD && sc2.t < C.RISE && sc2.def.roles) {
+          const L0 = C.RISE - C.ACTION_LEAD;
+          for (let k = 0; k < sc2.actors.length; k++) {
+            const a = sc2.actors[k], ro = sc2.def.roles[k] || {};
+            if (typeof ro.pdx !== 'number' && typeof ro.pdy !== 'number') continue;
+            const pv = a.__qaLean;
+            if (pv && pv.t >= L0) {
+              const stepPx = Math.hypot(a.x - pv.x, a.y - pv.y);
+              if (stepPx > 2.5) push(INV.lean, 'seed ' + seed + ' ' + sc2.def.id + '#' + k + ': lean-in step ' + stepPx.toFixed(2) + ' px at t=' + sc2.t.toFixed(2) + ' (> 2.5 px/step dash)');
+              if (sc2.t > C.RISE - 0.35 && stepPx > 1e-6) push(INV.lean, 'seed ' + seed + ' ' + sc2.def.id + '#' + k + ': still creeping ' + stepPx.toFixed(3) + ' px at t=' + sc2.t.toFixed(2) + ' (long tail)');
+              if (stepPx < 1e-9 && a.moving) push(INV.lean, 'seed ' + seed + ' ' + sc2.def.id + '#' + k + ': walk cycle on while standing at t=' + sc2.t.toFixed(2));
+            }
+            a.__qaLean = { x: a.x, y: a.y, t: sc2.t };
+          }
+        }
         const L = PE.logic;
         if (Math.abs(sc2.intensity - L.intensityAt(sc2.t, PE.CFG)) > 1e-6) push(INV.scState, 'seed ' + seed + ': intensity ' + sc2.intensity + ' != intensityAt(' + sc2.t + ')');
         const dd = Math.hypot(s2.player.x - sc2.focus.x, s2.player.y - sc2.focus.y);
@@ -695,6 +711,7 @@ module.exports = (t, PE) => {
   inv('at most one scandal-style bubble at any step', 'oneBubble');
   inv('dogs never teleport on camera (only > 300 px, both off-screen)', 'dogs');
   inv('npc bubbles: no two live bubbles share a line; no speaker repeats its last line', 'dupLine');
+  inv('lean-in: <= 2.5 px/step, arrives >= 0.35 s before the pop, no walk cycle while standing', 'lean');
   inv('resolution: bust/expire line within 1 s, glow off after BUST_FADE, actors removed (4 s / 5 s), player_good / player_miss lines', 'resolution');
   inv('timing: FIRST_DELAY 2 s, GAP 3 s after every resolve, END_DELAY 2 s', 'timing');
 

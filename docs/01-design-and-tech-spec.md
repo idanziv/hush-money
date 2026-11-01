@@ -6,9 +6,10 @@ v1.1 (mobile, see `05`): touch controls + portrait block + iOS audio unlock; hos
 v1.1.4 (see `05`): render interpolation (acc/DT) for 90/120 Hz and jittery displays; the sim stays fixed at DT.
 v1.1.5 (see `05`): lean-in is a fixed-duration ease (arrive ~0.4 s before RISE, then hold still); RISE, pop, flare, scoring unchanged.
 v1.1.6 (see `05`): lean-in ease is a smoothstep (zero speed at both ends); legs animate only at >= 6 px/s (LEAN_WALK_MIN_SPEED).
+v1.2 (see `05`): pause OPTIONS screen with SPEECH everyone / marks only / off (draw-time filter, persisted in localStorage `hushmoney.speech`); event-hitch fixes (sprite pools, deferred sfx, shared spawn BFS, baked near ring).
 
 ## 0. Docs policy
-- All docs live in `docs/`, numbered: `01-design-and-tech-spec.md`, `02-meeting-kickoff.md`, `03-review-v0.1.md`, `04-review-v0.2.md`, `05-review-v1.1-mobile.md`. Root `README.md` = player-facing run instructions (written at ship).
+- All docs live in `docs/`, numbered: `01-design-and-tech-spec.md`, `02-meeting-kickoff.md`, `03-review-v0.1.md`, `04-review-v0.2.md`, `05-review-v1.1-mobile.md`, `06-v2-plan.md`. Root `README.md` = player-facing run instructions (written at ship).
 - One file per meeting/feedback loop, containing BOTH the transcript (`**NAME (role):** line`) and an `Action items` table (owner | item | due). Every .md < ~200 lines. Target <= 8 doc files total. Hires report to Dana; Dana writes the docs.
 
 ## 1. Pitch & core loop

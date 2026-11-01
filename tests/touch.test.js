@@ -400,14 +400,17 @@ module.exports = (t, PE) => {
     const TT = PE.TEXT_TOUCH;
     t.ok(TT && typeof TT === 'object', 'PE.TEXT_TOUCH exists');
     const bad = [];
+    const leafs = (v, tag) => {   // every leaf (string / array item / nested object value) must be a clean string
+      if (Array.isArray(v)) v.forEach((x, i) => leafs(x, tag + '[' + i + ']'));
+      else if (v && typeof v === 'object') for (const k of Object.keys(v)) leafs(v[k], tag + '.' + k);
+      else if (typeof v !== 'string' || !v.trim()) bad.push(tag + ' empty');
+      else if (S.HEBREW_RE.test(v) || S.EMOJI_RE.test(v)) bad.push(tag + ' has Hebrew/emoji');
+    };
+    const shape = (v) => (Array.isArray(v) ? 'array' : typeof v);
     for (const k of Object.keys(TT)) {
       if (!(k in PE.TEXT)) bad.push('TEXT_TOUCH.' + k + ' is not a PE.TEXT key');
-      const vals = Array.isArray(TT[k]) ? TT[k] : [TT[k]];
-      if (Array.isArray(PE.TEXT[k]) !== Array.isArray(TT[k])) bad.push('TEXT_TOUCH.' + k + ' type differs from PE.TEXT.' + k);
-      vals.forEach((s, i) => {
-        if (typeof s !== 'string' || !s.trim()) bad.push('TEXT_TOUCH.' + k + '[' + i + '] empty');
-        else if (S.HEBREW_RE.test(s) || S.EMOJI_RE.test(s)) bad.push('TEXT_TOUCH.' + k + '[' + i + '] has Hebrew/emoji');
-      });
+      else if (shape(PE.TEXT[k]) !== shape(TT[k])) bad.push('TEXT_TOUCH.' + k + ' type differs from PE.TEXT.' + k);
+      leafs(TT[k], 'TEXT_TOUCH.' + k);
     }
     for (const k of ['controls', 'start']) if (!(k in TT)) bad.push('TEXT_TOUCH.' + k + ' missing (touch players need touch wording)');
     if (TT.start && /enter|space|key/i.test(TT.start)) bad.push('TEXT_TOUCH.start mentions keys: "' + TT.start + '"');

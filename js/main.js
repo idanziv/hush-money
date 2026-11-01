@@ -4,7 +4,7 @@
   'use strict';
 
   var canvas = null, ctx = null;
-  var state = 'title';            // title | playing | paused | results
+  var state = 'title';            // title | playing | paused | options (v1.2, from pause) | results
   var seedParam = null, debug = false;
   var keys = Object.create(null);
   var input = { up: false, down: false, left: false, right: false, sprint: false, photo: false };
@@ -89,6 +89,11 @@
       case 'paused':
         if (code === 'KeyP' || code === 'Escape') { state = 'playing'; lastT = 0; }
         else if (code === 'KeyR') startRun();
+        else if (code === 'KeyO') state = 'options';
+        break;
+      case 'options':                      // v1.2: Enter / Space cycles SPEECH; Esc (or O, Backspace) back to pause
+        if (code === 'Enter' || code === 'Space' || code === 'NumpadEnter') { if (PE.ui.cycleSpeech) PE.ui.cycleSpeech(); }
+        else if (code === 'Escape' || code === 'KeyO' || code === 'Backspace') state = 'paused';
         break;
       case 'results':
         if (code === 'KeyR' || code === 'Enter' || code === 'Space' || code === 'NumpadEnter') startRun();
@@ -113,6 +118,9 @@
     shoot: function () { if (state === 'playing') photoQueued = true; },
     pause: function () { if (state === 'playing') { state = 'paused'; photoQueued = false; } },
     resume: function () { if (state === 'paused') { state = 'playing'; lastT = 0; } },
+    options: function () { if (state === 'paused') state = 'options'; },
+    cycleSpeech: function () { if (state === 'options' && PE.ui.cycleSpeech) PE.ui.cycleSpeech(); },
+    back: function () { if (state === 'options') state = 'paused'; },
     start: function () { if (state !== 'results' || clock - resultsAt > 0.8) startRun(); },
     mute: function () { if (PE.sfx) PE.sfx.toggleMute(); }
   };
@@ -288,7 +296,11 @@
       renderWorld(gs, cam, true);
       if (state !== 'results') PE.ui.drawHUD(ctx, gs, cam);
       if (state === 'playing' && PE.touch) PE.touch.draw(ctx, gs.scandal && gs.scandal.status === 'live' ? gs.scandal.prox : 0);
-      if (state === 'paused') { PE.ui.drawPause(ctx); if (PE.touch) PE.touch.drawPause(ctx, PE.sfx && PE.sfx.muted); }
+      if (state === 'paused') {
+        PE.ui.drawPause(ctx);
+        if (PE.touch) { PE.touch.drawPause(ctx, PE.sfx && PE.sfx.muted); if (PE.touch.drawPauseOptions) PE.touch.drawPauseOptions(ctx); }
+      }
+      if (state === 'options' && PE.ui.drawOptions) PE.ui.drawOptions(ctx);
       if (state === 'results') PE.ui.drawResults(ctx, gs);
     }
     if (debug) drawDebug(gs, cam);
@@ -319,12 +331,14 @@
         if (PE.npc && PE.npc.update && dtReal > 0) PE.npc.update(Math.min(dtReal, 1 / 30), gs.player, PE.cam);
       }
       var t1 = performance.now();
-      var lerp = (state === 'playing' || state === 'paused') && PE.game.state;
+      var lerp = (state === 'playing' || state === 'paused' || state === 'options') && PE.game.state;
       if (lerp) interpBegin(PE.game.state);
       try { render(); } finally { if (lerp) interpEnd(PE.game.state); }
       var t2 = performance.now();
       updMs = updMs * 0.9 + (t1 - t0) * 0.1;
       renMs = renMs * 0.9 + (t2 - t1) * 0.1;
+      // v1.2 perf: prebuild one known speech-bubble canvas on a quiet frame (no events) until all are built
+      if (!frameEv.length && PE.ui.idleBuild) PE.ui.idleBuild();
     } catch (e) {
       report(e);
     }

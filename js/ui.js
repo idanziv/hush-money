@@ -27,8 +27,10 @@
   };
   // memoised HUD sprites (rebuilt only when the value changes)
   var memoScore = { v: NaN, s: null }, memoCase = { v: NaN, s: null }, memoMeters = { v: NaN, s: null };
+  var ltScore = null, ltCase = null, ltMeters = null;       // v1.2 perf: live text slots (created in init)
   // layout scratch (reused, no per-frame allocation)
   var ambientTmp = [], rx = [], ry = [], rw = [], rh = [], nRects = 0;
+  var nearRing = null, polaroidPool = [];
   var sb = { x: 0, y: 0, w: 0, h: 0, on: false };   // placed scandal bubble rect
   var place = { x: 0, y: 0 };
 
@@ -95,13 +97,14 @@
   }
   function changed(slot, value) { if (slot.v === value && slot.s) return false; slot.v = value; return true; }
 
-  function buildBubble(text, style, name) {
+  var pinnedCache = new Map();     // v1.2 perf: prebuilt scandal + player line bubbles (bounded by data, <= 200)
+  function buildBubble(text, style, name, pin) {
     var key = style + '\u0001' + (name || '') + '\u0001' + text;
-    var c = bubbleCache.get(key);
+    var c = pinnedCache.get(key) || bubbleCache.get(key);
     if (c) return c;
     var pad = 5, lh = 13, lines = wrap(text, FONT, 180), maxW = 0, i;
     for (i = 0; i < lines.length; i++) maxW = Math.max(maxW, measure(lines[i], FONT));
-    var scandal = style === 'scandal', tagH = (scandal && name) ? 15 : 0;
+    var whisper = style === 'whisper', scandal = style === 'scandal' || whisper, tagH = (scandal && name) ? 15 : 0;   // v2 night: 'whisper' = dashed scandal bubble
     var tagW = tagH ? measure(name, FONT) + 10 : 0;
     var bw = Math.ceil(Math.max(maxW + pad * 2, 24)), bh = lines.length * lh + pad * 2 - 1;
     var W = Math.max(bw, tagW) + 4, H = tagH + bh + 10;
@@ -111,21 +114,47 @@
     var border = scandal ? GREEN : (style === 'player' ? AMBER : '#222222');
     x.fillStyle = '#FFFFFF';
     roundRect(x, left, top, bw, bh, 5); x.fill();
-    x.lineWidth = scandal ? 2 : 1.5; x.strokeStyle = border; x.stroke();
+    x.lineWidth = scandal ? 2 : 1.5; x.strokeStyle = border; if (whisper) x.setLineDash([4, 3]); x.stroke(); x.setLineDash([]);
     var cx = Math.floor(W / 2);
     x.beginPath(); x.moveTo(cx - 5, top + bh - 1); x.lineTo(cx, top + bh + 7); x.lineTo(cx + 5, top + bh - 1); x.closePath();
     x.fillStyle = '#FFFFFF'; x.fill();
     x.beginPath(); x.moveTo(cx - 5, top + bh); x.lineTo(cx, top + bh + 7); x.lineTo(cx + 5, top + bh);
     x.strokeStyle = border; x.stroke();
-    x.font = FONT; x.textBaseline = 'top'; x.fillStyle = '#141414';
+    x.font = FONT; x.textBaseline = 'top'; x.fillStyle = whisper ? '#555555' : '#141414';
     for (i = 0; i < lines.length; i++) x.fillText(lines[i], left + pad, top + pad + i * lh);
     if (tagH) {
       x.fillStyle = GREEN; x.fillRect(left, 0, tagW, tagH - 1);
       x.fillStyle = '#0A1A06'; x.fillText(name, left + 5, 1);
     }
     c._ox = cx;  // anchor x
+    if (pin && pinnedCache.size < CACHE_CAP) { pinnedCache.set(key, c); return c; }
     return capSet(bubbleCache, key, c);
   }
+
+  // v1.2 perf: build every known line's bubble ahead of time, ONE per idle frame (title screen, gaps), so lines
+  // and quips never create a canvas mid-scene. Scandal (role name) + player lines are pinned; ambient go to the LRU.
+  var preQ = null, preI = 0;
+  function buildPreQueue() {
+    preQ = [];
+    var defs = PE.SCANDALS || [], i, j;
+    for (i = 0; i < defs.length; i++) {
+      var d = defs[i], roles = d.roles || [], all = [].concat(d.lines || [], d.bust || [], d.expire || []);
+      for (j = 0; j < all.length; j++) if (all[j] && all[j].s) preQ.push(['scandal', (roles[all[j].r | 0] || roles[0] || {}).name, all[j].s, true]);
+    }
+    var L = PE.LINES || {};
+    for (var cat in L) {
+      var player = cat.indexOf('player_') === 0, arr = L[cat] || [];
+      for (j = 0; j < arr.length; j++) preQ.push([player ? 'player' : 'ambient', undefined, arr[j], player]);
+    }
+  }
+  U.idleBuild = function () {
+    if (!mctx) return false;
+    if (!preQ) buildPreQueue();
+    if (preI >= preQ.length) return false;
+    var e = preQ[preI++];
+    if (e[2]) buildBubble(String(e[2]), e[0], e[1], e[3]);
+    return true;
+  };
   // Sprite cached on the bubble object itself: no per-frame key strings.
   function bubbleSprite(b) {
     if (b._spr && b._t === b.text && b._s === b.style && b._n === b.name) return b._spr;
@@ -158,6 +187,8 @@
       start: textSprite(TXT().start || 'Press Enter', 'bold 22px Verdana, sans-serif', '#FFFFFF', '#000000'),
       hint: null
     };
+    loadSettings();
+    ltScore = liveSlot(160); ltCase = liveSlot(140); ltMeters = liveSlot(64);
     try { var b = parseInt(globalThis.localStorage.getItem('hushmoney.best'), 10); st.best = isNaN(b) ? null : b; }
     catch (e) { st.best = null; }
   };
@@ -182,11 +213,31 @@
     return '#9A9A9A';
   }
 
+  // v1.2 perf: "live" text = one reused canvas per HUD slot, redrawn in place when its text changes (no
+  // createElement per score / meter / popup). Same pixels as textSprite: w = text + 6, h = font px + 8, text at (3, h/2).
+  function liveSlot(minW) { return { c: null, width: 0, height: 0, text: null, font: null, color: null, minW: minW }; }
+  function liveText(lt, text, font, color) {
+    if (lt.c && lt.text === text && lt.font === font && lt.color === color) return lt;
+    var w = Math.ceil(measure(text, font) + 6), h = fontPx(font) + 8;
+    if (!lt.c || lt.c.width < w || lt.c.height < h) lt.c = newCanvas(Math.max(w, lt.minW), Math.max(h, lt.c ? lt.c.height : 0));
+    var x = lt.c.getContext('2d');
+    x.clearRect(0, 0, lt.c.width, lt.c.height);
+    x.font = font; x.textBaseline = 'middle'; x.textAlign = 'left';
+    x.lineJoin = 'round'; x.lineWidth = 3; x.strokeStyle = '#000000'; x.strokeText(text, 3, h / 2);
+    x.fillStyle = color; x.fillText(text, 3, h / 2);
+    lt.width = w; lt.height = h; lt.text = text; lt.font = font; lt.color = color;
+    return lt;
+  }
+  function blit(ctx, lt, x, y, dw, dh) {          // draw a live slot (or a plain sprite) at x, y
+    if (!lt.c) { if (dw) ctx.drawImage(lt, x, y, dw, dh); else ctx.drawImage(lt, x, y); return; }
+    ctx.drawImage(lt.c, 0, 0, lt.width, lt.height, x, y, dw || lt.width, dh || lt.height);
+  }
+  var popA = liveSlot(320), popB = liveSlot(240), popC = liveSlot(260);
   function makePopup(a, b, c, color, t0) {
     return {
-      a: textSprite(a, 'bold 22px Verdana, sans-serif', color, '#000000'),
-      b: textSprite(b, 'bold 15px Verdana, sans-serif', color, '#000000'),
-      c: c ? textSprite(c, FONT, '#FFFFFF', '#000000') : null, t0: t0
+      a: liveText(popA, a, 'bold 22px Verdana, sans-serif', color),
+      b: liveText(popB, b, 'bold 15px Verdana, sans-serif', color),
+      c: c ? liveText(popC, c, FONT, '#FFFFFF') : null, t0: t0
     };
   }
 
@@ -201,8 +252,10 @@
       } else if (e.type === 'photo') {
         st.flashT0 = gs.time;
         var r = e.result || {};
-        if (r.kind === 'scored') st.popup = makePopup(r.label, '+' + PE.logic.formatShekels(r.points), fmtDt(r.dt), gradeColor(r.points), gs.time);
+        if (r.kind === 'scored') st.popup = makePopup(r.label, '+' + PE.logic.formatShekels(r.points), fmtDt(r.dt) + (typeof r.M === 'number' ? '   angle x' + r.M.toFixed(2) : ''), gradeColor(r.points), gs.time);
         else st.popup = makePopup(r.label || 'WASTED FILM', PE.logic.formatShekels(r.points), r.kind === 'too_far' ? 'get closer' : 'no scandal here', RED, gs.time);
+      } else if (e.type === 'resolve' && e.status === 'aborted') {          // v2 night
+        st.popup = makePopup('BLOWN COVER', 'they spotted you', '', RED, gs.time);
       } else if (e.type === 'resolve' && e.status === 'expired') {
         st.popup = makePopup('MISSED', 'the story walked away', '', '#B0B0B0', gs.time);
       }
@@ -258,6 +311,25 @@
   }
 
   function byDist(a, b) { return a._bd - b._bd; }
+  function isScandalStyle(st) { return st === 'scandal' || st === 'whisper'; }   // v1 never emits 'whisper'
+
+  // ---------------------------------------------------------------- v1.2 settings: speech filter
+  // PE.settings.speech = 'all' | 'marks' | 'off' (localStorage 'hushmoney.speech', try/catch; default 'all').
+  var SPEECH_MODES = ['all', 'marks', 'off'], SPEECH_KEY = 'hushmoney.speech';
+  PE.settings = PE.settings || {};
+  if (SPEECH_MODES.indexOf(PE.settings.speech) < 0) PE.settings.speech = 'all';
+  function speechMode() { var v = PE.settings && PE.settings.speech; return SPEECH_MODES.indexOf(v) >= 0 ? v : 'all'; }
+  function loadSettings() {
+    try { var v = globalThis.localStorage && globalThis.localStorage.getItem(SPEECH_KEY); if (SPEECH_MODES.indexOf(v) >= 0) PE.settings.speech = v; }
+    catch (e) { /* storage blocked: keep the default */ }
+  }
+  U.setSpeech = function (v) {
+    if (SPEECH_MODES.indexOf(v) < 0) return speechMode();
+    PE.settings.speech = v;
+    try { if (globalThis.localStorage) globalThis.localStorage.setItem(SPEECH_KEY, v); } catch (e) { /* not persisted */ }
+    return v;
+  };
+  U.cycleSpeech = function () { return U.setSpeech(SPEECH_MODES[(SPEECH_MODES.indexOf(speechMode()) + 1) % SPEECH_MODES.length]); };
 
   function layoutBubbles(ctx, cam, gs, people) {
     var i, q, p = gs.player;
@@ -272,10 +344,14 @@
       if (gs.caseNo === 1 && gs.scandal && gs.scandal.status === 'live') hudW = Math.max(hudW, hintSprite().width + 4);
     }
     var hudL = Math.round(cam.w / 2 - hudW / 2);
+    // v1.2 speech option: 'off' draws no bubble, 'marks' only the scandal (mark) bubbles. Hidden bubbles build no
+    // canvas and add no layout rect, so the arrow / chevron / no-go logic ignores them.
+    var speech = speechMode();
+    if (speech === 'off') return;
     // 1. scandal bubble(s) first (normally exactly one); never hidden: shifted below the HUD box if needed
     for (i = 0; i < people.length; i++) {
       q = people[i];
-      if (!q || !q.bubble || q.bubble.style !== 'scandal' || !q.bubble.text) continue;
+      if (!q || !q.bubble || !isScandalStyle(q.bubble.style) || !q.bubble.text) continue;
       var spr = bubbleSprite(q.bubble);
       anchor(q, spr, cam);
       if (hudBottom > 0 && place.y < hudBottom + 2 && place.x < hudL + hudW && place.x + spr.width > hudL) {
@@ -285,6 +361,7 @@
       if (!sb.on) { sb.on = true; sb.x = place.x; sb.y = place.y; sb.w = spr.width; sb.h = spr.height; }
       drawSpr(ctx, q.bubble, spr, place.x, place.y);
     }
+    if (speech === 'marks') return;
     if (hudBottom > 0) addRect(hudL, 0, hudW, hudBottom + 2);
     // v1.1.3 touch: SNAP button (touch.js SHUT_X/Y/R = W-112, H-142, 54) is a no-go box for ambient bubbles
     if (touchMenus()) addRect(cam.w - 112 - SNAP_R, cam.h - 142 - SNAP_R, SNAP_R * 2, SNAP_R * 2);
@@ -295,7 +372,7 @@
     ambientTmp.length = 0;
     for (i = 0; i < people.length; i++) {
       q = people[i];
-      if (!q || q === p || !q.bubble || !q.bubble.text || q.bubble.style === 'scandal' || q.kind === 'player') continue;
+      if (!q || q === p || !q.bubble || !q.bubble.text || isScandalStyle(q.bubble.style) || q.kind === 'player') continue;
       q._bd = Math.abs(q.x - p.x) + Math.abs(q.y - p.y);
       ambientTmp.push(q);
     }
@@ -363,10 +440,15 @@
     if (live) {
       var R = N(C().PHOTO_RANGE, 170);
       if (sc.prox === 1) {
-        ctx.globalAlpha = 0.4; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2;
-        ctx.setLineDash([8, 8]);
-        ctx.beginPath(); ctx.arc(px, py, R, 0, Math.PI * 2); ctx.stroke();
-        ctx.setLineDash([]);
+        // v1.2 perf: dashed ring baked once into a sprite (same stroke, alpha applied at blit)
+        if (!nearRing || nearRing._r !== R) {
+          nearRing = newCanvas(2 * R + 8, 2 * R + 8); nearRing._r = R;
+          var nx = nearRing.getContext('2d');
+          nx.strokeStyle = '#FFFFFF'; nx.lineWidth = 2; nx.setLineDash([8, 8]);
+          nx.beginPath(); nx.arc(R + 4, R + 4, R, 0, Math.PI * 2); nx.stroke();
+        }
+        ctx.globalAlpha = 0.4;
+        ctx.drawImage(nearRing, px - R - 4, py - R - 4);
       } else if (sc.prox === 2) {
         ctx.globalAlpha = 0.45; ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(px, py, R, 0, Math.PI * 2); ctx.stroke();
@@ -391,25 +473,30 @@
       // 120x90 world px around the focus (biased up so heads are in frame), scaled to 160x120
       var sx = Math.round(e.x - cam.x - 60), sy = Math.round(e.y - cam.y - 57);
       sx = Math.max(0, Math.min(W - 120, sx)); sy = Math.max(0, Math.min(H - 90, sy));
-      var pc = newCanvas(160, 120);
-      pc.getContext('2d').drawImage(canvas, sx, sy, 120, 90, 0, 0, 160, 120);
-      st.polaroids[Math.max(0, gs.results.length - 1)] = pc;
+      // v1.2 perf: one pooled canvas per case slot, reused across runs (results of the finished run are rebuilt fresh)
+      var slot = Math.max(0, gs.results.length - 1);
+      var pc = polaroidPool[slot] || (polaroidPool[slot] = newCanvas(160, 120));
+      var px = pc.getContext('2d');
+      px.clearRect(0, 0, 160, 120);
+      px.drawImage(canvas, sx, sy, 120, 90, 0, 0, 160, 120);
+      st.polaroids[slot] = pc;
       st.resultsCanvas = null;
     }
   };
 
   // ---------------------------------------------------------------- HUD
+  var pagerCanvases = {};                 // v1.2 perf: one canvas per (line count, touch) - redrawn per tip
   function pagerSprite(text) {
-    var key = 'pager|' + text;            // built once per tip (on spawn)
-    var c = spriteCache.get(key);
-    if (c) return c;
+    var c;
     // v1.1.2 touch: 18 px tip (12 CSS px at 740x360), wrap budget PAGER_TOUCH_TEXT_W px, max 3 lines
     var big = touchMenus(), tf = big ? 'bold ' + MENU_TOUCH_PX + 'px Verdana, sans-serif' : FONT;
     var lh = big ? 22 : 14, top = big ? 28 : 23;
     var lines = wrap(text, tf, big ? PAGER_TOUCH_TEXT_W : 400).slice(0, 3);
     var w = big ? PAGER_TOUCH_TEXT_W + 28 : 440, h = top + 3 + lines.length * lh;
-    c = newCanvas(w + 8, h + 8);
+    var pk = lines.length + (big ? 't' : 'd');
+    c = pagerCanvases[pk] || (pagerCanvases[pk] = newCanvas(w + 8, h + 8));
     var x = c.getContext('2d');
+    x.clearRect(0, 0, c.width, c.height);
     x.fillStyle = PLATE; roundRect(x, 0, 0, w + 8, h + 8, 8); x.fill();
     x.fillStyle = '#111111'; roundRect(x, 4, 4, w, h, 6); x.fill();
     x.fillStyle = '#9DB86A'; roundRect(x, 7, 7, w - 6, h - 6, 4); x.fill();
@@ -417,7 +504,7 @@
     x.fillText('PAGER  ))) NEW TIP', 14, 10);
     x.font = tf;
     for (var i = 0; i < lines.length; i++) x.fillText(lines[i], 14, top + i * lh);
-    return capSet(spriteCache, key, c);
+    return c;
   }
 
   function getPager() {
@@ -455,7 +542,7 @@
     plates[o] = x - 4; plates[o + 1] = y - 2; plates[o + 2] = spr.width + 8; plates[o + 3] = spr.height + 4;
     ctx.fillStyle = PLATE;
     ctx.fillRect(x - 4, y - 2, spr.width + 8, spr.height + 4);
-    ctx.drawImage(spr, x, y);
+    blit(ctx, spr, x, y);
   }
 
   function drawEdgeArrow(ctx, cam, sc) {
@@ -470,7 +557,7 @@
     // v1.1.2 touch: the wide pager / case-1 hint (top center): slide sideways along the top edge past them
     if (topBox.b > 0 && y - 16 < topBox.b && x + 16 > topBox.l && x - 16 < topBox.r) x = x < cam.w / 2 ? topBox.l - 18 : topBox.r + 18;
     var m = Math.round(sc.d / 16);
-    if (changed(memoMeters, m)) memoMeters.s = textSprite(m + 'm', FONT, GREEN, '#000000');
+    if (changed(memoMeters, m)) memoMeters.s = liveText(ltMeters, m + 'm', FONT, GREEN);
     var label = memoMeters.s;
     var lox = Math.round(-Math.cos(ang) * 26 - label.width / 2), loy = Math.round(-Math.sin(ang) * 22 - label.height / 2);
     // v1.0.1: arrow + label box also slides along its edge past the scandal bubble (e.g. one clamped to the bottom)
@@ -495,7 +582,7 @@
     ctx.fillStyle = GREEN; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = '#000000'; ctx.stroke();
     ctx.restore();
-    ctx.drawImage(label, x + lox, y + loy);
+    blit(ctx, label, x + lox, y + loy);
     ctx.globalAlpha = 1; ctx.lineWidth = 1;
   }
 
@@ -505,11 +592,11 @@
     consumeEvents(gs);
     var W = cam ? cam.w : 960, H = cam ? cam.h : 540, now = gs.time, spr;
     // score + case on plates
-    if (changed(memoScore, gs.score)) memoScore.s = textSprite(PE.logic.formatShekels(gs.score), 'bold 20px Verdana, sans-serif', gs.score < 0 ? RED : GOLD, '#000000');
+    if (changed(memoScore, gs.score)) memoScore.s = liveText(ltScore, PE.logic.formatShekels(gs.score), 'bold 20px Verdana, sans-serif', gs.score < 0 ? RED : GOLD);
     spr = memoScore.s;
     plate(ctx, spr, 10, 6, 0);
     var cn = Math.max(1, Math.min(gs.total, gs.caseNo));
-    if (changed(memoCase, cn * 100 + gs.total)) memoCase.s = textSprite('CASE ' + cn + '/' + gs.total, 'bold 16px Verdana, sans-serif', '#FFFFFF', '#000000');
+    if (changed(memoCase, cn * 100 + gs.total)) memoCase.s = liveText(ltCase, 'CASE ' + cn + '/' + gs.total, 'bold 16px Verdana, sans-serif', '#FFFFFF');
     spr = memoCase.s;
     plate(ctx, spr, W - 10 - spr.width, 8, 1);
     var sc = gs.scandal;
@@ -542,9 +629,9 @@
         var scl = at < 0.15 ? 1.5 - (at / 0.15) * 0.5 : 1, y0 = H - 112;
         if (at > 1.5) ctx.globalAlpha = Math.max(0, (1.8 - at) / 0.3);
         var aw = Math.round(pop.a.width * scl), ah = Math.round(pop.a.height * scl);
-        ctx.drawImage(pop.a, Math.round((W - aw) / 2), Math.round(y0 - ah / 2), aw, ah);
-        ctx.drawImage(pop.b, Math.round((W - pop.b.width) / 2), y0 + 16);
-        if (pop.c) ctx.drawImage(pop.c, Math.round((W - pop.c.width) / 2), y0 + 36);
+        blit(ctx, pop.a, Math.round((W - aw) / 2), Math.round(y0 - ah / 2), aw, ah);
+        blit(ctx, pop.b, Math.round((W - pop.b.width) / 2), y0 + 16);
+        if (pop.c) blit(ctx, pop.c, Math.round((W - pop.c.width) / 2), y0 + 36);
         ctx.globalAlpha = 1;
       } else if (at >= 1.8) st.popup = null;
     }
@@ -641,6 +728,43 @@
     ctx.drawImage(pauseCanvas, 0, 0);
   };
 
+  // ---------------------------------------------------------------- v1.2 options panel (pause -> OPTIONS)
+  // Layout (canvas px): SPEECH row x 330..630, y 228..280; BACK x 405..555, y 306..350. touch.js hit-tests via optionsHit().
+  var OPT_ROW = { x: 330, y: 228, w: 300, h: 52 }, OPT_BACK = { x: 405, y: 306, w: 150, h: 44 };
+  var OPT0 = { title: 'OPTIONS', speech: { all: 'SPEECH: EVERYONE', marks: 'SPEECH: MARKS ONLY', off: 'SPEECH: OFF' }, back: 'BACK' };
+  var optCache = {};
+  function optText() {
+    var o = TXT().options || {}, sp = o.speech || {};
+    return { title: o.title || OPT0.title, back: o.back || OPT0.back,
+      speech: { all: sp.all || OPT0.speech.all, marks: sp.marks || OPT0.speech.marks, off: sp.off || OPT0.speech.off } };
+  }
+  function optButton(x, r, label, font, accent) {
+    x.fillStyle = 'rgba(37,29,43,0.95)'; x.fillRect(r.x, r.y, r.w, r.h);
+    x.lineWidth = 2; x.strokeStyle = accent; x.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+    x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#FFFFFF';
+    x.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 1);
+  }
+  // Cached full-screen panel per speech value (3 canvases max); built once, blitted per frame.
+  U.drawOptions = function (ctx) {
+    if (!mctx) return;
+    var W = ctx.canvas ? ctx.canvas.width : 960, H = ctx.canvas ? ctx.canvas.height : 540, mode = speechMode();
+    var c = optCache[mode];
+    if (!c) {
+      var big = touchMenus(), t = optText(), f = 'bold ' + (big ? MENU_TOUCH_PX : 15) + 'px Verdana, sans-serif';
+      c = optCache[mode] = newCanvas(W, H);
+      var x = c.getContext('2d');
+      x.fillStyle = 'rgba(0,0,0,0.6)'; x.fillRect(0, 0, W, H);
+      centerText(x, t.title, 150, 'bold 40px Verdana, sans-serif', GOLD, W);
+      optButton(x, OPT_ROW, t.speech[mode], f, GOLD);
+      optButton(x, OPT_BACK, t.back, f, '#8A7A96');
+      var hint = big ? 'Tap SPEECH to change' : 'Enter / Space - change     Esc - back';
+      centerText(x, hint, H - 96, big ? 'bold ' + MENU_TOUCH_PX + 'px Verdana, sans-serif' : 'bold 14px Verdana, sans-serif', '#D8D0C0', W);
+    }
+    ctx.drawImage(c, 0, 0);
+  };
+  function inR(r, x, y) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+  U.optionsHit = function (x, y) { return inR(OPT_ROW, x, y) ? 'speech' : (inR(OPT_BACK, x, y) ? 'back' : null); };
+
   function buildResults(gs, W, H) {
     var c = newCanvas(W, H), x = c.getContext('2d'), logic = PE.logic, i, j;
     x.fillStyle = 'rgba(16,10,20,0.9)'; x.fillRect(0, 0, W, H);
@@ -681,6 +805,11 @@
       x.font = 'bold 10px Verdana, sans-serif';
       x.fillText(r.label || '', tx, py + 24);
       if (r.photo) { x.fillStyle = '#B8B0C0'; x.fillText(fmtDt(r.dt), tx, py + 38); }
+      if (r.photo && r.angle) {                                             // v2 night: polaroid breakdown line
+        var bd = (PE.NIGHT && typeof PE.NIGHT.breakdown === 'function') ? PE.NIGHT.breakdown(r.angle) : 'x' + N(r.M, 1).toFixed(2);
+        x.font = 'bold 9px Verdana, sans-serif'; x.fillStyle = '#B8B0C0'; x.fillText(bd, cx + 10, cy + ch - 12);
+      }
+      if (r.aborted) { x.font = 'bold 10px Verdana, sans-serif'; x.fillStyle = RED; x.fillText('BLOWN COVER', tx, py + 38); }
     }
     var fyy = y0 + 2 * (ch + 10) + (touchMenus() ? 0 : 8);   // touch: room for the 18 px hint below
     var pen = gs.score - sum;
@@ -710,6 +839,76 @@
       st.resultsCanvas = buildResults(gs, W, H); st.resultsN = gs.results.length; st.resultsScore = gs.score;
     }
     ctx.drawImage(st.resultsCanvas, 0, 0);
+  };
+
+  // ================================================================ v2 NIGHT HUD (additive: only night-main calls these)
+  // drawNightWorld(ctx, cam, gs): photo wedge (70 deg / PHOTO_RANGE, faint white) + suspicion eye and meter over watchers.
+  // drawNightHUD(ctx, gs, cam): your exposure (IN SHADOW / LIT, SEEN!) + case suspicion bar, under the score plate.
+  // All sprites pre-rendered on first use; no per-frame strings or allocation.
+  var nightSpr = null;
+  function makeEye(iris, open) {
+    var c = newCanvas(24, 16), x = c.getContext('2d');
+    x.fillStyle = '#000000'; x.beginPath(); x.ellipse(12, 8, 11, open ? 7 : 4, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#F4F1E8'; x.beginPath(); x.ellipse(12, 8, 9.5, open ? 5.5 : 2.5, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = iris; x.beginPath(); x.arc(12, 8, open ? 4 : 2.5, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#000000'; x.beginPath(); x.arc(12, 8, open ? 1.8 : 1.2, 0, Math.PI * 2); x.fill();
+    return c;
+  }
+  function buildNightSprites() {
+    var R = N(C().PHOTO_RANGE, 170), fov = N(PE.NIGHT && PE.NIGHT.ANGLE && PE.NIGHT.ANGLE.PHOTO_CONE_DEG, 70) * Math.PI / 180;
+    var size = R * 2 + 4, m = size / 2, wedges = [], d;
+    for (d = 0; d < 8; d++) {
+      var c = newCanvas(size, size), x = c.getContext('2d'), a = (d * 45 - 90) * Math.PI / 180;
+      x.beginPath(); x.moveTo(m, m); x.arc(m, m, R, a - fov / 2, a + fov / 2); x.closePath();
+      x.fillStyle = 'rgba(255,255,255,0.09)'; x.fill();
+      x.strokeStyle = 'rgba(255,255,255,0.35)'; x.lineWidth = 1.5; x.stroke();
+      wedges.push(c);
+    }
+    nightSpr = {
+      wedges: wedges,
+      eyes: [[makeEye('#7A7A7A', false), makeEye('#7A7A7A', true)], [makeEye(AMBER, false), makeEye(AMBER, true)], [makeEye(RED, false), makeEye(RED, true)]],
+      shadow: textSprite('IN SHADOW', FONT, '#9FB4E8', '#000000'),
+      lit: textSprite('LIT', FONT, AMBER, '#000000'),
+      seen: textSprite('SEEN!', FONT, RED, '#000000'),
+      susp: textSprite('SUSPICION', 'bold 9px Verdana, sans-serif', '#D8D0C0', '#000000')
+    };
+  }
+  function suspIdx(st) { return st === 'cagey' || st === 'abort' ? 2 : (st === 'uneasy' ? 1 : 0); }
+  function suspColor(v) { return v >= 65 ? RED : (v >= 35 ? AMBER : '#D8D0C0'); }
+
+  U.drawNightWorld = function (ctx, cam, gs) {
+    if (!mctx || !gs) return;
+    if (!nightSpr) buildNightSprites();
+    var p = gs.player, sc = gs.scandal, i;
+    var wd = nightSpr.wedges[((p.dir | 0) % 8 + 8) % 8];
+    ctx.drawImage(wd, Math.round(p.x - cam.x - wd.width / 2), Math.round(p.y - 8 - cam.y - wd.height / 2));
+    if (!sc || sc.status !== 'live' || !sc.watchers) return;
+    var si = suspIdx(sc.suspState), frac = Math.max(0, Math.min(1, N(sc.susp, 0) / 100)), col = suspColor(N(sc.susp, 0));
+    for (i = 0; i < sc.watchers.length; i++) {
+      var w = sc.watchers[i], sx = Math.round(w.x - cam.x), sy = Math.round(w.y - cam.y) - 44;
+      if (sx < -30 || sy < -30 || sx > cam.w + 30 || sy > cam.h + 30) continue;
+      var eye = nightSpr.eyes[si][w.sees ? 1 : 0];
+      if (!w.coneOn && !w.sees) ctx.globalAlpha = 0.45;                      // busy (glance kind, off-window)
+      ctx.drawImage(eye, sx - 12, sy - 8);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000000'; ctx.fillRect(sx - 13, sy + 9, 26, 5);
+      ctx.fillStyle = col; ctx.fillRect(sx - 12, sy + 10, Math.round(24 * frac), 3);
+    }
+  };
+
+  U.drawNightHUD = function (ctx, gs, cam) {
+    if (!mctx || !gs) return;
+    if (!nightSpr) buildNightSprites();
+    var sc = gs.scandal;
+    if (!sc || sc.status !== 'live' || !sc.watchers) return;
+    var x0 = 6, y0 = 40, lab = sc.exposed ? nightSpr.lit : nightSpr.shadow;
+    ctx.fillStyle = PLATE; ctx.fillRect(x0, y0, 122, 40);
+    ctx.drawImage(lab, x0 + 4, y0 + 2);
+    if (sc.seenNow) ctx.drawImage(nightSpr.seen, x0 + 8 + lab.width, y0 + 2);
+    ctx.drawImage(nightSpr.susp, x0 + 4, y0 + 20);
+    var v = N(sc.susp, 0), bx = x0 + 8 + nightSpr.susp.width, bw = 122 - (bx - x0) - 6;
+    ctx.fillStyle = '#000000'; ctx.fillRect(bx, y0 + 25, bw, 7);
+    ctx.fillStyle = suspColor(v); ctx.fillRect(bx + 1, y0 + 26, Math.round((bw - 2) * Math.min(1, v / 100)), 5);
   };
 
   PE.ui = U;

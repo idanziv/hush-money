@@ -196,13 +196,15 @@
   }
 
   // Spec 7: (a) strict [MIN,MAX] + off-screen; (b) drop off-screen; (c) [RELAX_MIN, RELAX_MAX]; else null.
-  function pickSpawnSpot(grid, spots, px, py, cam, kinds, cfg, rng, excludeId) {
+  // v1.2 perf: optional dists = bfsTiles(grid, player tile, max(SPAWN_MAX, RELAX_MAX)) precomputed by the caller
+  // (game.js reuses one BFS for every def of a spawn). Same result and same rng use either way.
+  function pickSpawnSpot(grid, spots, px, py, cam, kinds, cfg, rng, excludeId, dists) {
     if (!grid || !spots || !spots.length) return null;
     var T = num(cfg && cfg.TILE, 32);
     var MIN = num(cfg && cfg.SPAWN_MIN_TILES, 18), MAX = num(cfg && cfg.SPAWN_MAX_TILES, 34);
     var RMIN = num(cfg && cfg.RELAX_MIN_TILES, 8), RMAX = num(cfg && cfg.RELAX_MAX_TILES, 40);
     var M = num(cfg && cfg.SPAWN_OFFSCREEN_MARGIN, 64);
-    var dists = bfsTiles(grid, Math.floor(px / T), Math.floor(py / T), Math.max(MAX, RMAX));
+    if (!dists || dists.length !== grid.w * grid.h) dists = bfsTiles(grid, Math.floor(px / T), Math.floor(py / T), Math.max(MAX, RMAX));
     var cx = num(cam && cam.x, px - 480), cy = num(cam && cam.y, py - 270);
     var cw = num(cam && cam.w, 960), ch = num(cam && cam.h, 540);
     var useKinds = kinds !== null && kinds !== undefined;   // null = any kind; [] = no kind matches

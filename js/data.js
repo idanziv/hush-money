@@ -465,8 +465,15 @@
     ],
     start: 'Press Enter',
     hint1: 'Get IN RANGE. Read the cue, watch the lean-in, then snap!',
-    pause: 'PAUSED - P / Esc to resume, R to restart',
-    resultsHint: 'R / Enter: blackmail again'
+    pause: 'PAUSED - P/Esc resume, R restart, O options',
+    resultsHint: 'R / Enter: blackmail again',
+    // v1.2 pause-menu options (speech filter). Labels <= 48 chars.
+    options: {
+      title: 'OPTIONS',
+      speech: { all: 'SPEECH: EVERYONE', marks: 'SPEECH: MARKS ONLY', off: 'SPEECH: OFF' },
+      back: 'BACK',
+      keyHint: 'O - options'
+    }
   };
 
   // Phones / tablets (coarse pointer): main.js copies these over PE.TEXT at boot.
@@ -480,6 +487,13 @@
     ],
     start: 'Tap to start',
     pause: 'Tap anywhere else to resume',
-    resultsHint: 'Tap to blackmail again'
+    resultsHint: 'Tap to blackmail again',
+    // copied over PE.TEXT.options as a whole object, so it is complete here
+    options: {
+      title: 'OPTIONS',
+      speech: { all: 'SPEECH: EVERYONE', marks: 'SPEECH: MARKS ONLY', off: 'SPEECH: OFF' },
+      back: 'BACK',
+      keyHint: 'II (top right) - options'
+    }
   };
 })(globalThis.PE = globalThis.PE || {});

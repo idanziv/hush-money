@@ -389,9 +389,95 @@
     ];
   }
 
+  // =====================================================================
+  // NIGHT (v2 prototype, district x19-46 y28-56). Active only for city.init({night: true}).
+  // Plain init() output is exactly v1 (night keys are deleted).
+  // lights: px; zero beyond r. Falloff curve is stealth.js's (currently intensity * (1 - smoothstep(d/r)));
+  // placements were tuned and checked against stealth.lightAt. Not pinned here (open contract question).
+  // occluders for light and sight: BUILDING + KIOSK tiles + cover with blocksSight.
+  // cover: tiles {x,y,w,h,kind,blocksSight}; solid in night grid only (tile ids unchanged).
+  // =====================================================================
+  var NIGHT_COL = { lamp: '#FFB54A', kiosk: '#CFE8FF', window: '#FFC878', neonPink: '#FF4FA8', neonCyan: '#4FD8FF' };
+  var NIGHT_SPOTS = [
+    ['n_kiosk_w', 'Rothschild Kiosk', 'kiosk', 26, 33], ['n_kiosk_n', 'Kiosk Corner', 'kiosk', 22, 28],
+    ['n_blvd_w', 'Boulevard Benches', 'boulevard', 32, 33], ['n_blvd_e', 'Boulevard Lamps', 'boulevard', 43, 33],
+    ['n_cafe_st', 'Cafe Street Corner', 'cafe', 39, 29], ['n_cafe_bar', 'Florentin Bar', 'cafe', 42, 41],
+    ['n_alley_a', 'Florentin Corner', 'alley', 27, 47], ['n_alley_b', 'Graffiti Yard', 'alley', 38, 54]
+  ];
+  var NIGHT_ZONES = [[36, 28, 42, 30, 'cafe'], [39, 38, 45, 44, 'cafe']];
+  var NIGHT_STARTS = [[19, 40], [34, 48], [46, 45]];
+  // [tx, ty, w, h, kind, blocksSight]
+  var NIGHT_COVER = [
+    [20, 34, 2, 1, 'shelter', true], [37, 34, 2, 1, 'shelter', true],
+    [26, 27, 1, 1, 'planter', true], [28, 27, 1, 1, 'planter', true], [33, 27, 1, 1, 'planter', true], [35, 27, 1, 1, 'planter', true],
+    [36, 24, 1, 1, 'planter', true], [42, 24, 1, 1, 'planter', true],
+    [27, 38, 1, 2, 'car', true], [27, 41, 1, 1, 'dumpster', true], [27, 53, 1, 2, 'car', true], [27, 56, 1, 1, 'dumpster', true],
+    [35, 39, 1, 2, 'car', true], [35, 42, 1, 1, 'dumpster', true], [35, 46, 1, 1, 'dumpster', true], [35, 48, 1, 2, 'car', true],
+    [41, 46, 1, 2, 'car', true], [41, 49, 1, 1, 'dumpster', true],
+    [20, 45, 2, 1, 'car', true], [23, 45, 1, 1, 'planter', true], [31, 45, 2, 1, 'car', true], [37, 45, 1, 1, 'dumpster', true],
+    [21, 52, 2, 1, 'car', true], [24, 52, 1, 1, 'dumpster', true], [31, 52, 1, 1, 'dumpster', true], [33, 52, 1, 1, 'planter', true],
+    [44, 52, 1, 1, 'dumpster', true], [42, 52, 2, 1, 'car', true],
+    [30, 27, 1, 1, 'planter', true], [36, 22, 1, 1, 'planter', true], [42, 22, 1, 1, 'planter', true], [20, 52, 1, 1, 'dumpster', true],
+    [45, 45, 1, 1, 'dumpster', true], [39, 45, 1, 1, 'planter', true], [33, 45, 1, 1, 'dumpster', true], [35, 38, 1, 1, 'dumpster', true],
+    [36, 34, 1, 1, 'planter', true]
+  ];
+  // [tx, ty, offX, offY, kind, colour, r, intensity, fromCase]  (px = t*32+16+off)
+  var NIGHT_LIGHTS = [
+    [22, 33, -16, -16, 'kiosk', 'kiosk', 128, 1.0, 1],
+    // one key light per spot (~1 tile off centre): subjects lit, corners 4-5 tiles out stay dark
+    [26, 32, 0, -8, 'lamp', 'lamp', 112, 0.9, 3], [21, 28, 0, -8, 'lamp', 'lamp', 104, 0.85, 3],
+    [32, 34, 0, 8, 'lamp', 'lamp', 112, 0.9, 3], [43, 34, 0, 8, 'lamp', 'lamp', 112, 0.9, 3],
+    [38, 28, 0, -8, 'neon', 'neonPink', 96, 0.8, 2], [40, 28, 0, -8, 'neon', 'neonCyan', 96, 0.75, 2],
+    [41, 40, 0, 0, 'neon', 'neonPink', 96, 0.8, 2], [43, 42, 0, 0, 'neon', 'neonCyan', 96, 0.75, 2],
+    [27, 46, 0, -8, 'lamp', 'lamp', 104, 0.85, 3], [38, 53, 0, -8, 'lamp', 'lamp', 104, 0.85, 3],
+    // street ambience, away from the hiding corners
+    [19, 30, 0, 0, 'lamp', 'lamp', 104, 0.85, 3], [19, 49, 0, 0, 'lamp', 'lamp', 104, 0.85, 3], [34, 57, 0, 0, 'lamp', 'lamp', 96, 0.8, 3],
+    [40, 51, 0, 0, 'lamp', 'lamp', 80, 0.6, 3], [36, 37, 0, 0, 'lamp', 'lamp', 96, 0.7, 3], [43, 44, 0, 8, 'window', 'window', 56, 0.5, 2],
+    // window glow in the alleys
+    [21, 44, 0, -8, 'window', 'window', 48, 0.45, 2], [29, 44, 0, -8, 'window', 'window', 48, 0.45, 2], [37, 44, 0, -8, 'window', 'window', 48, 0.45, 3],
+    [22, 51, 0, -8, 'window', 'window', 48, 0.45, 2], [30, 51, 0, -8, 'window', 'window', 48, 0.45, 3], [44, 51, 0, -8, 'window', 'window', 48, 0.45, 2],
+    [26, 40, 8, 0, 'window', 'window', 48, 0.45, 3], [34, 41, 8, 0, 'window', 'window', 48, 0.45, 2], [40, 47, -8, 0, 'window', 'window', 48, 0.45, 3],
+    [34, 49, -8, 0, 'window', 'window', 48, 0.45, 3]
+  ];
+  function buildNight() {
+    var i, x, y, k;
+    // zones (cafe overrides in the district)
+    for (i = 0; i < NIGHT_ZONES.length; i++) { var nz = NIGHT_ZONES[i]; fillZ(nz[0], nz[1], nz[2], nz[3], Z[nz[4]]); }
+    // trees too close to a night spot are removed in night mode (tile reverts to its floor)
+    for (i = trees.length - 1; i >= 0; i--) {
+      var tr = trees[i], near = false;
+      for (k = 0; k < NIGHT_SPOTS.length; k++) if (Math.max(Math.abs(NIGHT_SPOTS[k][3] - tr.tx), Math.abs(NIGHT_SPOTS[k][4] - tr.ty)) <= 3) near = true;
+      if (near) { tile[I(tr.tx, tr.ty)] = tr.park ? T.GRASS : T.STRIP; solid[I(tr.tx, tr.ty)] = 0; trees.splice(i, 1); }
+    }
+    city.cover = [];
+    for (i = 0; i < NIGHT_COVER.length; i++) {
+      var c = NIGHT_COVER[i];
+      city.cover.push({ x: c[0], y: c[1], w: c[2], h: c[3], kind: c[4], blocksSight: c[5], v: hash3(c[0], c[1], 41) & 3 });
+      for (y = c[1]; y < c[1] + c[3]; y++) for (x = c[0]; x < c[0] + c[2]; x++) solid[I(x, y)] = 1;
+    }
+    city.lights = [];
+    for (i = 0; i < NIGHT_LIGHTS.length; i++) {
+      var L = NIGHT_LIGHTS[i];
+      city.lights.push({ x: tc(L[0]) + L[2], y: tc(L[1]) + L[3], r: L[6], color: NIGHT_COL[L[5]], intensity: L[7], kind: L[4], fromCase: L[8] });
+    }
+    city.daySpots = city.spots;
+    city.spots = [];
+    for (i = 0; i < NIGHT_SPOTS.length; i++) {
+      var s = NIGHT_SPOTS[i];
+      city.spots.push({ id: s[0], name: s[1], kind: s[2], x: tc(s[3]), y: tc(s[4]) });
+    }
+    city.playerStarts = NIGHT_STARTS.map(function (p) { return { x: tc(p[0]), y: tc(p[1]) }; });
+    city.playerStart = city.playerStarts[0];
+    city.district = { x0: 19, y0: 28, x1: 46, y1: 56 };
+    city.NIGHT_COLORS = NIGHT_COL;
+  }
+
   // ---------- public headless API ----------
-  city.init = function () {
+  city.init = function (opts) {
     build();
+    city.night = !!(opts && opts.night);
+    if (city.night) buildNight();
+    else { delete city.lights; delete city.cover; delete city.daySpots; delete city.district; delete city.NIGHT_COLORS; delete city.night; }
     city.gfxReady = false; // graphics (if any) are rebuilt lazily for the fresh data
     city.inited = true;
     return city;
@@ -413,7 +499,7 @@
   // GRAPHICS (DOM only below, inside functions)
   // =====================================================================
   var chunks = null, nCX = W / CH, nCY = H / CH, canopies, umbImgs, towerImg, jetImgs, falUmb;
-  var lastT = 0, baseM = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  var lastT = 0;
 
   function mk(w, h) { var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; }
   function hexRgb(h) { var n = parseInt(String(h).slice(1, 7), 16) || 0; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
@@ -669,6 +755,16 @@
       }
     }
   }
+  // night cover props are static: baked into the ground chunks (art.drawCover; plain fallback)
+  function paintCover(g, wx0, wy0, wx1, wy1) {
+    var art = PE.art, i, c, X, Y;
+    for (i = 0; i < city.cover.length; i++) {
+      c = city.cover[i]; X = c.x * TS; Y = c.y * TS;
+      if (X + c.w * TS + 16 < wx0 || Y + c.h * TS + 16 < wy0 || X > wx1 || Y > wy1) continue;
+      if (art && typeof art.drawCover === 'function') art.drawCover(g, X, Y, c.kind, c.w, c.h, c.v);
+      else { R(g, 'rgba(20,14,30,0.35)', X + 4, Y + 4, c.w * TS, c.h * TS); R(g, '#5A5A64', X + 2, Y + 2, c.w * TS - 4, c.h * TS - 4); }
+    }
+  }
   function drawBench(g, x, y, dir) {
     var horiz = (dir === 0 || dir === 4);
     if (horiz) {
@@ -876,6 +972,7 @@
       g.setTransform(1, 0, 0, 1, -cx * CPX, -cy * CPX);
       for (var ty = cy * CH; ty < (cy + 1) * CH; ty++) for (var tx = cx * CH; tx < (cx + 1) * CH; tx++) paintTile(g, tx, ty);
       paintDecor(g, cx * CPX, cy * CPX, (cx + 1) * CPX, (cy + 1) * CPX);
+      if (city.night && city.cover) paintCover(g, cx * CPX, cy * CPX, (cx + 1) * CPX, (cy + 1) * CPX);
       g.setTransform(1, 0, 0, 1, 0, 0);
       chunks.push(c);
     }
@@ -923,10 +1020,8 @@
   };
 
   function off(d, ht) { var o = d * ht * 0.04; return o > MAXOFF ? MAXOFF : o < -MAXOFF ? -MAXOFF : Math.round(o); }
-  function setT(ctx, a, b, c, d, e, f) {
-    var M = baseM;
-    ctx.setTransform(M.a * a + M.c * b, M.b * a + M.d * b, M.a * c + M.c * d, M.b * c + M.d * d, M.a * e + M.c * f + M.e, M.b * e + M.d * f + M.f);
-  }
+  // wall quad = texture skewed onto the parallelogram; composes with the caller's transform, no allocation
+  function wall(ctx, img, a, b, c, d, e, f) { ctx.save(); ctx.transform(a, b, c, d, e, f); ctx.drawImage(img, 0, 0); ctx.restore(); }
 
   city.drawTop = function (ctx, cam, timeSec) {
     if (!ensureGfx()) return;
@@ -968,20 +1063,16 @@
       img = canopies[tr.v]; ctx.drawImage(img, sx - (img.width >> 1) + ox, sy - (img.height >> 1) + oy);
     }
     // buildings (sorted by height ascending)
-    var m = ctx.getTransform ? ctx.getTransform() : null;
-    if (m) { baseM.a = m.a; baseM.b = m.b; baseM.c = m.c; baseM.d = m.d; baseM.e = m.e; baseM.f = m.f; }
-    else { baseM.a = 1; baseM.b = 0; baseM.c = 0; baseM.d = 1; baseM.e = 0; baseM.f = 0; }
-    var D = WALL_D, transformed = false;
+    var D = WALL_D;
     for (i = 0; i < drawList.length; i++) {
       var b = drawList[i], bw = b.w * TS, bh = b.h * TS;
       sx = b.x * TS - camX; sy = b.y * TS - camY;
       if (sx + bw < -MAXOFF || sy + bh < -MAXOFF || sx > vw + MAXOFF || sy > vh + MAXOFF) continue;
       ox = off(b.x * TS + bw / 2 - vcx, b.ht); oy = off(b.y * TS + bh / 2 - vcy, b.ht);
-      if (ox > 0 && b.ht > b.nW + 0.08) { setT(ctx, ox / D, oy / D, 0, 1, sx, sy); ctx.drawImage(b.tW, 0, 0); transformed = true; }
-      else if (ox < 0 && b.ht > b.nE + 0.08) { setT(ctx, ox / D, oy / D, 0, 1, sx + bw, sy); ctx.drawImage(b.tE, 0, 0); transformed = true; }
-      if (oy > 0 && b.ht > b.nN + 0.08) { setT(ctx, 1, 0, ox / D, oy / D, sx, sy); ctx.drawImage(b.tN, 0, 0); transformed = true; }
-      else if (oy < 0 && b.ht > b.nS + 0.08) { setT(ctx, 1, 0, ox / D, oy / D, sx, sy + bh); ctx.drawImage(b.tS, 0, 0); transformed = true; }
-      if (transformed) { setT(ctx, 1, 0, 0, 1, 0, 0); transformed = false; }
+      if (ox > 0 && b.ht > b.nW + 0.08) wall(ctx, b.tW, ox / D, oy / D, 0, 1, sx, sy);
+      else if (ox < 0 && b.ht > b.nE + 0.08) wall(ctx, b.tE, ox / D, oy / D, 0, 1, sx + bw, sy);
+      if (oy > 0 && b.ht > b.nN + 0.08) wall(ctx, b.tN, 1, 0, ox / D, oy / D, sx, sy);
+      else if (oy < 0 && b.ht > b.nS + 0.08) wall(ctx, b.tS, 1, 0, ox / D, oy / D, sx, sy + bh);
       ctx.drawImage(b.roof, sx + ox, sy + oy);
     }
   };

@@ -24,7 +24,7 @@ Click the game once if the keyboard doesn't respond. The game scales to fit the 
 1. Open https://idanziv.github.io/hush-money/ in Safari (iPhone, iPad) or Chrome (Android).
 2. Hold the device sideways. In portrait the game pauses and asks you to turn it, and touches do nothing until you do.
 3. Tap to start. Where the browser allows it (Android, iPad), the game goes fullscreen and locks to landscape.
-4. Drag anywhere on the **left half** to walk; drag out to the rim of the stick to jog. Tap the **right half** (the SNAP button) to take a photo. **II** (top right) pauses; the pause screen has RESTART and SOUND buttons, and a tap anywhere else resumes.
+4. Drag anywhere on the **left half** to walk; drag out to the rim of the stick to jog. Tap the **right half** (the SNAP button) to take a photo. **II** (top right) pauses; the pause screen has RESTART, SOUND and OPTIONS buttons, and a tap anywhere else resumes. OPTIONS lets you choose who talks: everyone, only the marks, or no one.
 5. No sound? Check the phone isn't on silent and turn the volume up.
 6. iPhone tip: Share > **Add to Home Screen** gives you a full-screen game icon.
 
@@ -70,9 +70,10 @@ A run has 6 cases and lasts about 2 minutes. At the end, your **blackmail portfo
 | R | Restart the run |
 | Enter | Start / play again |
 | M | Mute / unmute |
+| O (while paused) | Options: speech for everyone, marks only, or off |
 | ` (backquote) | Debug overlay (FPS) |
 
-On a touchscreen: drag on the left half to walk (to the rim to jog), tap the right half to shoot, II to pause. Play in landscape.
+On a touchscreen: drag on the left half to walk (to the rim to jog), tap the right half to shoot, II to pause (OPTIONS is on the pause screen). Play in landscape.
 
 ## Troubleshooting
 - **Black screen or an error message on screen:** make sure the whole folder was copied, including the `js` folder next to `index.html`. Then reload (Cmd+R / Ctrl+R).

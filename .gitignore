@@ -1,3 +1,6 @@
 ﻿# Not part of the game - keep private
 cv/
 
+
+# Local Claude Code settings
+.claude/settings.local.json

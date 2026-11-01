@@ -92,3 +92,16 @@ Suite 135/135, 0 console errors, 60 fps, desktop unchanged, both review bugs fix
 - eng-lead (game.js): smoothstep over the same 0.6x ACTION_LEAD window (zero speed at both ends); legs animate only at >= 6 px/s. RISE, pop, scoring and DT unchanged.
 - QA: 139/139. At 60/90/120 Hz and jittery 60 Hz the arrival is soft; last move t 10.52-10.58, still after 10.6; legs on once, off once; 0 px snap at the pop; 6x PERFECT; p99 16.8 ms, 0 console errors.
 - **Sign-off: SHIP v1.1.6.** Dana. Open with the client: Pixel re-check, thumb + second finger, Add to Home Screen.
+
+## v1.2: speech options + slowdown near marks (client items 1-2)
+- Ilan's profile, live v1 at 4x throttle: frames stay paced; the slowdown is event hitches (new canvases about every 1-2 s, spawn planning, WebAudio, GC), not drawing. So no library and no WebGL2 for v1.
+- Yoni:
+  - OPTIONS screen (O key / touch button) with SPEECH: everyone / marks only / off, filtered at draw time and persisted.
+  - Canvas pools and prebuilds: canvases per second near a mark 0.99 -> 0.08.
+  - Deferred sfx, a shared spawn BFS, a baked near ring.
+- Noa: no getTransform or key strings per frame. Tamar: labels and the pause hint.
+- QA: 139/139 + speech.test.js 7/7. Spawns identical on 60/60 seeds; desktop pixels identical apart from the hint. Peak p99 21.9 -> 15.0 ms, photo frame 24.0 -> 17.1 ms, frames with sound work over 1 ms 8 -> 0. 6x PERFECT in each speech mode; 0 console errors.
+- Calls: whisper bubbles count as marks; player quips are hidden in "marks only".
+- Remaining photo-popup text spike (~10 ms at 4x): ship now and fix next as v1.2.1, before M1 resumes. Action item for Yoni: prebuild the popup label and grade sprites during the GAP and use the digit atlas for points. QA re-measures the photo frame.
+- Open: Pixel numbers from the client.
+- **Sign-off: SHIP v1.2.** Dana.

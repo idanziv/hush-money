@@ -93,11 +93,13 @@
     var left = s.total - s.caseNo - 1;               // cases still to come after this one
     var full = (1 << deck.length) - 1;
     planMemo = Object.create(null);
+    // v1.2 perf: one BFS from the player tile for every def (was one per def inside pickSpawnSpot)
+    var Tt = N(cfg.TILE, 32), dists = logic.bfsTiles(grid, Math.floor(s.player.x / Tt), Math.floor(s.player.y / Tt), Math.max(N(cfg.SPAWN_MAX_TILES, 34), N(cfg.RELAX_MAX_TILES, 40)));
     // Pass 1 - spec 7 exactly (first strict, else first relaxed), but skip a pick that would leave the
     // remaining deck unable to fill the remaining cases (planner assumes the player ends near each spot).
     var firstAny = null, firstRel = null;
     for (var i = 0; i < deck.length; i++) {
-      var r = logic.pickSpawnSpot(grid, spots, s.player.x, s.player.y, cam, deck[i].kinds, cfg, rng, lastSpotId);
+      var r = logic.pickSpawnSpot(grid, spots, s.player.x, s.player.y, cam, deck[i].kinds, cfg, rng, lastSpotId, dists);
       if (!r) continue;
       if (!firstAny) firstAny = { idx: i, pick: r };
       if (!feasible(spots.indexOf(r.spot), full & ~(1 << i), left)) continue;
@@ -107,7 +109,7 @@
     if (firstRel) return firstRel;
     // Pass 2 - the random spot pickSpawnSpot chose dead-ends: search every legal (def, spot) of the deck
     // with the same relax levels, keeping only plannable ones.
-    var planned = plannedPick(grid, spots, cam, cfg, full, left);
+    var planned = plannedPick(grid, spots, cam, cfg, full, left, dists);
     if (planned) return planned;
     // Pass 3 - no plan exists: spec 7 pick anyway (kinds and distance always respected).
     return firstAny;   // null -> caller retries in 0.5 s
@@ -122,6 +124,16 @@
       bfsCache[si] = L().bfsTiles(grid, Math.floor(sp.x / T), Math.floor(sp.y / T), N(C().RELAX_MAX_TILES, 40));
     }
     return bfsCache[si];
+  }
+  // v1.2 perf: warm the per-spot BFS cache one spot per step while waiting / resolving (pure, no rng),
+  // so the spawn frame does not pay for it. Same values as building them lazily at spawn.
+  var warmIdx = 0;
+  function warmPlanner() {
+    var city = PE.city;
+    if (!city || !city.grid || !city.spots) return;
+    if (bfsGrid !== city.grid) { bfsGrid = city.grid; bfsCache = []; warmIdx = 0; }
+    while (warmIdx < city.spots.length && bfsCache[warmIdx]) warmIdx++;
+    if (warmIdx < city.spots.length) spotDist(city.grid, city.spots, warmIdx);
   }
   function tileVal(d, grid, sp) {
     var T = N(C().TILE, 32);
@@ -148,9 +160,10 @@
     }
     return false;
   }
-  function plannedPick(grid, spots, cam, cfg, full, left) {
+  function plannedPick(grid, spots, cam, cfg, full, left, dists) {
     var s = G.state, T = N(cfg.TILE, 32), logic = L();
-    var d = logic.bfsTiles(grid, Math.floor(s.player.x / T), Math.floor(s.player.y / T), N(cfg.RELAX_MAX_TILES, 40));
+    // same values as a RELAX_MAX BFS for every tile that matters (<= RELAX_MAX); reuses the spawn BFS when given
+    var d = dists || logic.bfsTiles(grid, Math.floor(s.player.x / T), Math.floor(s.player.y / T), N(cfg.RELAX_MAX_TILES, 40));
     var M = N(cfg.SPAWN_OFFSCREEN_MARGIN, 64);
     var MIN = N(cfg.SPAWN_MIN_TILES, 18), MAX = N(cfg.SPAWN_MAX_TILES, 34);
     var RMIN = N(cfg.RELAX_MIN_TILES, 8), RMAX = N(cfg.RELAX_MAX_TILES, 40);
@@ -373,6 +386,7 @@
     // --- phase machine
     var sc = s.scandal;
     if (sc && sc.flareT >= 0) sc.flareT += dt;
+    if (s.phase === 'waiting' || s.phase === 'resolving') warmPlanner();
     if (s.phase === 'waiting') {
       s.timer -= dt;
       if (s.timer <= 0) { if (!spawn()) s.timer = 0.5; }

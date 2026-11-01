@@ -13,7 +13,7 @@ const vm = require('vm');
 const ROOT = path.resolve(__dirname, '..');
 const TEST_DIR = __dirname;
 const GAME_FILES = ['data', 'logic', 'city', 'npc', 'game'];
-const PREFERRED_ORDER = ['logic.test.js', 'data.test.js', 'city.test.js', 'sim.test.js', 'static.test.js', 'touch.test.js', 'render.test.js'];
+const PREFERRED_ORDER = ['logic.test.js', 'data.test.js', 'city.test.js', 'sim.test.js', 'static.test.js', 'touch.test.js', 'render.test.js', 'speech.test.js'];
 
 const C = process.stdout.isTTY && !process.env.NO_COLOR
   ? { g: '\x1b[32m', r: '\x1b[31m', y: '\x1b[33m', d: '\x1b[2m', x: '\x1b[0m' }

@@ -12,6 +12,7 @@
   var TOP_BAND = 52;                   // score / CASE plates: no shooting from there
   var BTN_W = 150, BTN_H = 40, BTN_Y = H - 62;   // pause screen buttons
   var RESTART_X = W / 2 - 165, MUTE_X = W / 2 + 15;
+  var OPTIONS_X = W / 2 + 195;                 // v1.2: OPTIONS button x 675..825, right of SOUND
 
   var T = { enabled: false };
   var canvas = null, api = null;
@@ -112,9 +113,15 @@
     if (blocked()) { if (st === 'title') goFullscreen(); return; }     // fullscreen + landscape lock, no start yet
     if (st === 'title') { goFullscreen(); api.start(); }
     else if (st === 'results') api.start();
+    else if (st === 'options') {                   // v1.2 options panel: SPEECH row cycles, BACK returns; elsewhere nothing
+      var hit = PE.ui && PE.ui.optionsHit ? PE.ui.optionsHit(p.x, p.y) : null;
+      if (hit === 'speech' && api.cycleSpeech) api.cycleSpeech();
+      else if (hit === 'back' && api.back) api.back();
+    }
     else if (st === 'paused') {
       if (inRect(p, RESTART_X, BTN_Y, BTN_W, BTN_H)) api.start();
       else if (inRect(p, MUTE_X, BTN_Y, BTN_W, BTN_H)) api.mute();
+      else if (api.options && inRect(p, OPTIONS_X, BTN_Y, BTN_W, BTN_H)) api.options();
       else if (!portrait()) api.resume();
     }
   }
@@ -132,7 +139,8 @@
       pause: makePause(),
       restart: makeButton('RESTART'),
       soundOn: makeButton('SOUND: ON'),
-      soundOff: makeButton('SOUND: OFF')
+      soundOff: makeButton('SOUND: OFF'),
+      options: makeButton(((PE.TEXT && PE.TEXT.options && PE.TEXT.options.title) || 'OPTIONS'))
     };
     window.addEventListener('pointerdown', onDown, { passive: false });
     window.addEventListener('pointermove', onMove, { passive: false });
@@ -145,6 +153,16 @@
   };
 
   T.release = function () { stick.id = -1; };
+
+  // v2 night (additive, read-only): raw stick deflection for facing hysteresis / turn-in-place.
+  // Writes {active, dx, dy, len, r} into out (game px; r = stick radius) and returns it. v1 never calls it.
+  T.stick = function (out) {
+    out = out || {};
+    out.active = stick.id !== -1; out.r = R;
+    out.dx = out.active ? stick.kx - stick.bx : 0; out.dy = out.active ? stick.ky - stick.by : 0;
+    out.len = Math.sqrt(out.dx * out.dx + out.dy * out.dy);
+    return out;
+  };
 
   // Merge the stick into the keyboard input (8 directions, like WASD; push to the rim to jog).
   T.read = function (input) {
@@ -187,6 +205,11 @@
     if (!T.enabled || !spr) return;
     ctx.drawImage(spr.restart, RESTART_X, BTN_Y);
     ctx.drawImage(muted ? spr.soundOff : spr.soundOn, MUTE_X, BTN_Y);
+  };
+  // v1.2: OPTIONS button on the pause screen (separate call so drawPause keeps its RESTART + SOUND contract).
+  T.drawPauseOptions = function (ctx) {
+    if (!T.enabled || !spr) return;
+    ctx.drawImage(spr.options, OPTIONS_X, BTN_Y);
   };
 
   PE.touch = T;

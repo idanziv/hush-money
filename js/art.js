@@ -541,9 +541,9 @@
   };
 
   function vehAtlas(type, color) {
-    var key = type + color, c = cache.veh[key];
+    var byType = cache.veh[type] || (cache.veh[type] = Object.create(null)), c = byType[color];   // 2-level lookup: no per-frame key string
     if (c) return c;
-    if (cache.vehKeys.length >= 48) { delete cache.veh[cache.vehKeys.shift()]; }
+    if (cache.vehKeys.length >= 48) { var old = cache.vehKeys.shift(); if (cache.veh[old[0]]) delete cache.veh[old[0]][old[1]]; }
     var cs = VCELL[type], g;
     c = mk(cs * 8, cs); g = c.getContext('2d');
     for (var d = 0; d < 8; d++) {
@@ -551,7 +551,7 @@
       if (type === 'car') paintCar(g, color, d); else paintScooter(g, color, d);
       g.restore();
     }
-    cache.veh[key] = c; cache.vehKeys.push(key);
+    byType[color] = c; cache.vehKeys.push([type, color]);   // miss path only
     return c;
   }
   // colour validity cached per colour string (capped), so no regex runs per frame
@@ -572,5 +572,129 @@
     var col = colorOk(color) ? color : (ty === 'car' ? '#C0392B' : '#3A6AC0');
     var cs = VCELL[ty], d = dirOf(dir);
     ctx.drawImage(vehAtlas(ty, col), d * cs, 0, cs, cs, Math.round(sx) - (cs >> 1), Math.round(sy) - (cs >> 1), cs, cs);
+  };
+
+  // =====================================================================
+  // NIGHT (v2 prototype) - additive. Data is headless; sprites are built lazily on first use.
+  // =====================================================================
+  // Palette note for light.js: darkening = multiply by env.ambientColor (PE.NIGHT.CASES, canonical) brightened
+  // toward white by env.ambient; this ramp is the reference/fallback (dusk #E89A6A full -> night #2A2C58 ~35%).
+  // Light colours come from city.lights[i].color. Never use the scandal green for any light or shadow.
+  art.NIGHT_PALETTE = {
+    dusk: '#E89A6A', night: '#2A2C58', nightLevel: 0.35, shadow: '#140C24',
+    lamp: '#FFB54A', kiosk: '#CFE8FF', window: '#FFC878', neonPink: '#FF4FA8', neonCyan: '#4FD8FF'
+  };
+  // ambient 0..1 (PE.NIGHT.CASES ambient) -> fallback grade {color, level}; 0.90 = dusk, 0.12 = night
+  art.nightGrade = function (ambient) {
+    var a = +ambient; if (!(a === a)) a = 0.9;
+    var u = (0.9 - a) / (0.9 - 0.12); u = u < 0 ? 0 : (u > 1 ? 1 : u);
+    var c0 = hexRgb(art.NIGHT_PALETTE.dusk), c1 = hexRgb(art.NIGHT_PALETTE.night), out = '#';
+    for (var i = 0; i < 3; i++) { var v = cl(c0[i] + (c1[i] - c0[i]) * u); out += (v < 16 ? '0' : '') + v.toString(16); }
+    return { color: out.toUpperCase(), level: 1 - (1 - art.NIGHT_PALETTE.nightLevel) * u };
+  };
+
+  var night = null; // lazy sprite cache: {cover:{}, coverN, shadows, light:{}}
+  function nightCache() { if (!night) night = { cover: Object.create(null), coverN: 0, shadows: null, light: Object.create(null) }; return night; }
+  var COVER_CAR = ['#7A2E2A', '#2E4A6A', '#C8C2B4', '#4A4A52'];
+
+  function paintCover(kind, w, h, v) {
+    var W = w * 32, H = h * 32, c = mk(W, H), g = c.getContext('2d');
+    switch (kind) {
+      case 'car': {
+        g.save(); g.translate(W / 2, H / 2);
+        paintCar(g, COVER_CAR[v & 3], W > H ? 2 : 0);
+        g.restore();
+        break;
+      }
+      case 'planter': {
+        rect(g, 'rgba(20,12,36,0.35)', 5, 6, W - 6, H - 6);
+        rect(g, '#7E7A72', 2, 2, W - 5, H - 5); rect(g, '#A8A398', 3, 3, W - 7, H - 7); rect(g, '#5A4030', 6, 6, W - 13, H - 13);
+        for (var k = 0; k < 5; k++) circ(g, k & 1 ? '#5E7B44' : '#4E6B3A', 8 + ((k * 7) % (W - 16)), 9 + ((k * 5) % (H - 18)), 5);
+        circ(g, '#6E8A50', W / 2 - 2, H / 2 - 3, 3);
+        break;
+      }
+      case 'dumpster': {
+        rect(g, 'rgba(20,12,36,0.35)', 5, 7, W - 6, H - 8);
+        rect(g, '#2E3A34', 3, 4, W - 6, H - 9); rect(g, '#4A5A50', 4, 5, W - 8, H - 11); rect(g, '#3A4840', 4, 5, W - 8, 4);
+        rect(g, '#7A8A80', 6, 6, W - 12, 1); rect(g, '#141414', 5, H - 6, 3, 3); rect(g, '#141414', W - 8, H - 6, 3, 3);
+        circ(g, '#1C1C20', W - 6, H - 7, 3); circ(g, '#C8C0A8', 6, H - 4, 1.5);
+        break;
+      }
+      case 'shelter': {
+        var horiz = W >= H;
+        rect(g, 'rgba(20,12,36,0.35)', 6, 6, W - 6, H - 6);
+        rect(g, '#4A5058', 2, 2, W - 4, H - 4); rect(g, '#8A939C', 4, 4, W - 8, H - 8);
+        rect(g, 'rgba(255,255,255,0.18)', 5, 5, (W - 10) >> 1, H - 10);
+        if (horiz) { rect(g, '#2E3038', 3, H - 8, W - 6, 4); rect(g, '#E8E2D0', W - 14, 5, 10, H - 14); rect(g, '#FF4FA8', W - 12, 8, 6, 4); }
+        else { rect(g, '#2E3038', W - 8, 3, 4, H - 6); rect(g, '#E8E2D0', 5, H - 14, W - 14, 10); rect(g, '#FF4FA8', 8, H - 12, 4, 6); }
+        break;
+      }
+      default: {
+        rect(g, 'rgba(20,12,36,0.35)', 5, 5, W - 6, H - 6); rect(g, '#5A5A64', 2, 2, W - 5, H - 5);
+      }
+    }
+    return c;
+  }
+  // Cover prop (static; city.js bakes it into the night ground chunks). x, y = top-left px; w, h tiles.
+  art.drawCover = function (ctx, x, y, kind, w, h, variant) {
+    if (typeof document === 'undefined' || !ctx) return;
+    var tw = Math.max(1, Math.min(4, (w | 0) || 1)), th = Math.max(1, Math.min(4, (h | 0) || 1)), v = (variant | 0) & 3;
+    var k = (typeof kind === 'string' ? kind : 'other') + '|' + tw + '|' + th + '|' + v, nc = nightCache(), c = nc.cover[k];
+    if (!c) { if (nc.coverN >= 64) { nc.cover = Object.create(null); nc.coverN = 0; } c = nc.cover[k] = paintCover(kind, tw, th, v); nc.coverN++; }
+    var X = Math.round(x), Y = Math.round(y);
+    if (X === X && Y === Y) ctx.drawImage(c, X, Y);
+  };
+
+  // Character blob shadows for light.js: 16 directions x 3 lengths, soft dark-violet ellipse anchored at the feet.
+  var SH_CELL = 64, SH_DIRS = 16, SH_LENS = [1, 1.7, 2.5];
+  function buildShadows() {
+    var c = mk(SH_CELL * SH_DIRS, SH_CELL * SH_LENS.length), g = c.getContext('2d'), d, l, k;
+    for (l = 0; l < SH_LENS.length; l++) for (d = 0; d < SH_DIRS; d++) {
+      var len = SH_LENS[l], a = d / SH_DIRS * TAU, rx = 7.5 * len, ry = 4.5;
+      g.save(); g.translate(d * SH_CELL + 32, l * SH_CELL + 32); g.rotate(a);
+      for (k = 0; k < 4; k++) { g.globalAlpha = 0.28; ell(g, art.NIGHT_PALETTE.shadow, (rx - 6) * 0.9, 0, rx - k * 1.3, ry - k * 0.8); }
+      g.restore();
+    }
+    g.globalAlpha = 1;
+    return c;
+  }
+  // angle: radians the shadow points to (away from the light; 0 = east, +y = south); stretch 1..3; alpha 0..1
+  art.drawBlobShadow = function (ctx, sx, sy, angle, stretch, alpha) {
+    if (typeof document === 'undefined' || !ctx) return;
+    var al = +alpha; if (!(al > 0)) return; if (al > 1) al = 1;
+    var x = Math.round(sx), y = Math.round(sy); if (!(x === x && y === y)) return;
+    var nc = nightCache(); if (!nc.shadows) nc.shadows = buildShadows();
+    var a = +angle; if (!(a === a)) a = Math.PI / 4;
+    var d = ((Math.round(a / TAU * SH_DIRS) % SH_DIRS) + SH_DIRS) % SH_DIRS;
+    var s = +stretch, l = !(s > 1.35) ? 0 : (s < 2.1 ? 1 : 2);
+    var pa = ctx.globalAlpha; ctx.globalAlpha = pa * al;
+    ctx.drawImage(nc.shadows, d * SH_CELL, l * SH_CELL, SH_CELL, SH_CELL, x - 32, y - 32, SH_CELL, SH_CELL);
+    ctx.globalAlpha = pa;
+  };
+
+  // White light sprites for light.js to scale/tint: 'round' = 128x128 radial, alpha = 1 - smoothstep(d/r)
+  // (same curve as stealth.js lightAt); 'cone' = 128x64 headlight cone pointing east, apex at (0, 32), 40 deg.
+  art.lightSprite = function (kind) {
+    if (typeof document === 'undefined') return null;
+    var key = kind === 'cone' ? 'cone' : 'round', nc = nightCache();
+    if (nc.light[key]) return nc.light[key];
+    var W = 128, H = key === 'cone' ? 64 : 128, c = mk(W, H), g = c.getContext('2d'), img = null;
+    try { img = g.createImageData(W, H); } catch (e) { img = null; }
+    if (img && img.data && img.data.length) {
+      var p = img.data, x, y, i;
+      for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+        var u, f;
+        if (key === 'round') { u = Math.sqrt((x + 0.5 - 64) * (x + 0.5 - 64) + (y + 0.5 - 64) * (y + 0.5 - 64)) / 64; }
+        else {
+          var dx = x + 0.5, dy = y + 0.5 - 32, ang = Math.abs(Math.atan2(dy, dx)) / (20 * Math.PI / 180);
+          u = Math.max(Math.sqrt(dx * dx + dy * dy) / 128, ang > 1 ? 1 : ang * ang * 0.6 + ang * 0.4);
+        }
+        u = u > 1 ? 1 : u; f = 1 - u * u * (3 - 2 * u);
+        i = (y * W + x) * 4; p[i] = p[i + 1] = p[i + 2] = 255; p[i + 3] = Math.round(f * 255);
+      }
+      g.putImageData(img, 0, 0);
+    }
+    nc.light[key] = c;
+    return c;
   };
 })(globalThis.PE = globalThis.PE || {});

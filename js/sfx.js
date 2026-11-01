@@ -67,14 +67,24 @@
     tick: function (t) { tone('triangle', 2400, 1800, t, 0.04, 0.2); }
   };
 
-  S.play = function (name) {
-    if (!ac || S.muted) return;
-    var fn = SOUNDS[name];
-    if (!fn) return;
+  // v1.2 perf: play() only queues; the WebAudio graph is built in a setTimeout(0) task right after the current
+  // frame (update + render), so node creation never lands inside a hitch frame. Same-frame sounds still start
+  // together (one currentTime); the delay is one task (~0-4 ms), well under what an ear notices.
+  var queue = [null, null, null, null, null, null, null, null], qn = 0, scheduled = false;
+  function flush() {
+    scheduled = false;
+    var n = qn; qn = 0;
+    if (!ac || S.muted || !n) return;
     try {
       if (ac.state !== 'running') wake();
-      fn(ac.currentTime + 0.005);
+      var t = ac.currentTime + 0.005;
+      for (var i = 0; i < n; i++) { var fn = SOUNDS[queue[i]]; queue[i] = null; if (fn) fn(t); }
     } catch (e) { /* never break the game for audio */ }
+  }
+  S.play = function (name) {
+    if (!ac || S.muted || !SOUNDS[name]) return;
+    if (qn < queue.length) queue[qn++] = name;
+    if (!scheduled) { scheduled = true; setTimeout(flush, 0); }
   };
 
   S.toggleMute = function () {

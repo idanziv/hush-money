@@ -424,15 +424,16 @@
   // [tx, ty, offX, offY, kind, colour, r, intensity, fromCase]  (px = t*32+16+off)
   var NIGHT_LIGHTS = [
     [22, 33, -16, -16, 'kiosk', 'kiosk', 128, 1.0, 1],
-    // one key light per spot (~1 tile off centre): subjects lit, corners 4-5 tiles out stay dark
-    [26, 32, 0, -8, 'lamp', 'lamp', 112, 0.9, 3], [21, 28, 0, -8, 'lamp', 'lamp', 104, 0.85, 3],
-    [32, 34, 0, 8, 'lamp', 'lamp', 112, 0.9, 3], [43, 34, 0, 8, 'lamp', 'lamp', 112, 0.9, 3],
-    [38, 28, 0, -8, 'neon', 'neonPink', 96, 0.8, 2], [40, 28, 0, -8, 'neon', 'neonCyan', 96, 0.75, 2],
-    [41, 40, 0, 0, 'neon', 'neonPink', 96, 0.8, 2], [43, 42, 0, 0, 'neon', 'neonCyan', 96, 0.75, 2],
-    [27, 46, 0, -8, 'lamp', 'lamp', 104, 0.85, 3], [38, 53, 0, -8, 'lamp', 'lamp', 104, 0.85, 3],
+    // one key light per spot (M1 b): lights the 100-170 px approach ring; cover and walls leave dark pockets
+    // (tuned jointly with stealth.js rayHit/falloff: every spot keeps >= 2 dark approaches + dark shooting tiles)
+    [27, 32, 0, 0, 'lamp', 'lamp', 240, 1, 3], [23, 29, 0, 0, 'lamp', 'lamp', 272, 1, 3],
+    [33, 34, 0, 0, 'lamp', 'lamp', 272, 0.85, 3], [44, 35, 0, 0, 'lamp', 'lamp', 272, 1, 3],
+    [41, 27, 0, 0, 'neon', 'neonPink', 176, 0.85, 2], [40, 28, 0, -8, 'neon', 'neonCyan', 96, 0.75, 2],
+    [41, 41, 0, 0, 'neon', 'neonPink', 272, 0.85, 2], [43, 42, 0, 0, 'neon', 'neonCyan', 96, 0.75, 2],
+    [26, 47, 0, 0, 'lamp', 'lamp', 240, 0.85, 3], [35, 55, 0, 0, 'lamp', 'lamp', 304, 1, 3],
     // street ambience, away from the hiding corners
-    [19, 30, 0, 0, 'lamp', 'lamp', 104, 0.85, 3], [19, 49, 0, 0, 'lamp', 'lamp', 104, 0.85, 3], [34, 57, 0, 0, 'lamp', 'lamp', 96, 0.8, 3],
-    [40, 51, 0, 0, 'lamp', 'lamp', 80, 0.6, 3], [36, 37, 0, 0, 'lamp', 'lamp', 96, 0.7, 3], [43, 44, 0, 8, 'window', 'window', 56, 0.5, 2],
+    [19, 30, 0, 0, 'lamp', 'lamp', 104, 0.85, 3], [19, 49, 0, 0, 'lamp', 'lamp', 104, 0.85, 3], [37, 51, 0, 0, 'lamp', 'lamp', 240, 0.85, 3],
+    [40, 51, 0, 0, 'lamp', 'lamp', 240, 0.85, 3], [35, 34, 0, 0, 'lamp', 'lamp', 176, 1, 3], [43, 44, 0, 8, 'window', 'window', 56, 0.5, 2],
     // window glow in the alleys
     [21, 44, 0, -8, 'window', 'window', 48, 0.45, 2], [29, 44, 0, -8, 'window', 'window', 48, 0.45, 2], [37, 44, 0, -8, 'window', 'window', 48, 0.45, 3],
     [22, 51, 0, -8, 'window', 'window', 48, 0.45, 2], [30, 51, 0, -8, 'window', 'window', 48, 0.45, 3], [44, 51, 0, -8, 'window', 'window', 48, 0.45, 2],

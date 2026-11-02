@@ -4,6 +4,8 @@ A small top-down 2D browser game set in a pocket-sized Tel Aviv. You are a sleaz
 
 **Play online:** https://idanziv.github.io/hush-money/ (temporary home on GitHub Pages)
 
+**Prototype, work in progress:** https://idanziv.github.io/hush-money/night.html is a night version with lights, shadows and lookouts. Stay out of their sight, keep to the dark, and frame the shot. Same controls. The game above is still the main one.
+
 No installation needed. The game is plain HTML and JavaScript, and every graphic and sound is generated inside the browser.
 
 ## Run it

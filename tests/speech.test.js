@@ -26,6 +26,9 @@ module.exports = (t) => {
       set(o, p, v) { store[p] = v; return true; },
     });
   }
+  // Seeded RNG (QA flake fix): the test and the sandbox Math.random both draw from mulberry32, never the host Math.random.
+  const mulberry32 = (a) => () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const qaRand = mulberry32(0x5EEC4);
   // opts: { coarse, storage: 'ok'|'absent'|'throw', stored: value for hushmoney.speech }
   function boot(opts) {
     opts = opts || {};
@@ -51,6 +54,7 @@ module.exports = (t) => {
     else if (opts.storage !== 'absent') sb.localStorage = ls;
     sb.window = sb;
     vm.createContext(sb);
+    vm.runInContext('Math', sb).random = mulberry32(0xC0FFEE);   // deterministic sandbox (seeded, like the game rng)
     for (const f of SHIP) { const p = path.join(JS, f + '.js'); vm.runInContext(fs.readFileSync(p, 'utf8'), sb, { filename: p }); }
     const PE = sb.PE;
     const key = (c) => { for (const fn of L.keydown || []) fn({ code: c, key: c, repeat: false, preventDefault() {} }); for (const fn of L.keyup || []) fn({ code: c, key: c, preventDefault() {} }); };
@@ -74,7 +78,7 @@ module.exports = (t) => {
     return { gs, sc, amb };
   }
   function sayAll(g, x) {
-    const N = g.PE.npc, s = Date.now() + Math.random();               // fresh text = fresh bubble objects (no cached sprite)
+    const N = g.PE.npc, s = qaRand().toString(36).slice(2);               // fresh text = fresh bubble objects (no cached sprite)
     N.say(x.sc.actors[0], 'QA mark line ' + s, 'scandal', 2, 'Mark');
     N.say(x.gs.player, 'QA player quip ' + s, 'player', 2);
     N.say(x.amb, 'QA ambient line ' + s, 'ambient', 2);
@@ -99,7 +103,7 @@ module.exports = (t) => {
     }
     const g = boot(), x = stage(g);                                    // night whisper style counts as a mark
     g.PE.ui.setSpeech('marks');
-    x.sc.actors[0].bubble = { text: 'QA whisper ' + Math.random(), ttl: 2, style: 'whisper', name: 'Mark' };   // night-game emits whisper; v1 npc.say would coerce it
+    x.sc.actors[0].bubble = { text: 'QA whisper ' + qaRand().toString(36).slice(2), ttl: 2, style: 'whisper', name: 'Mark' };   // night-game emits whisper; v1 npc.say would coerce it
     g.frame();
     t.ok(drawn(g, x.sc.actors[0].bubble), 'marks: whisper bubble drawn');
   });
